@@ -4,6 +4,11 @@
         "*.excalidrawlib": "json",
         "*.tcc": "cpp",
         "string": "cpp",
-        "fstream": "cpp"
+        "fstream": "cpp",
+        "new": "cpp",
+        "array": "cpp",
+        "string_view": "cpp",
+        "functional": "cpp",
+        "type_traits": "cpp"
     }
 }
