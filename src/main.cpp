@@ -13,7 +13,7 @@
 
 MFRC522 mfrc522(SDA_SS_PIN, RST_PIN); // create instance of class
 MFRC522::MIFARE_Key key;
-
+// WebServer server(80);
 
 int sw = 14;
 const int LED1 = 1;
@@ -23,6 +23,12 @@ String  ssid_pass;     // character and character string buffer
 String uqid = "";
 String username = "";
 String password = "";
+
+String st;
+String content;
+String esid;
+String epass = "";
+int statusCode;
 
 static int id;
 
@@ -44,13 +50,11 @@ void get_data()
   String encoded = base64::encode(input_s);
   String auth = "Basic " + encoded;
 
-
-
   WiFiClientSecure client;
   client.setInsecure();
 
   Serial.println("[HTTP] begin...\n");
-  if (client.connect("fleetkaptan.up.railway.app", 443))
+  if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
   {
     client.println("GET /api/rfid/" + uqid + "/" + username + "/write-to-rfid/ HTTP/1.1");
     client.println("Host: fleetkaptan.up.railway.app");
@@ -118,7 +122,7 @@ void get_data()
   {
     Serial.println(F("Connection wasnt established"));
   }
-  Serial.println("we got the responnse");
+  Serial.println("we got the responnse");btSerial.begin(9600);
   
   btSerial.begin(9600);
 }
@@ -126,50 +130,49 @@ void get_data()
 
 void post_data(String D0, String data){
   btSerial.end();
-  delay(100);
-   if (WiFi.status() == WL_CONNECTED)
-  {
-    StaticJsonDocument<256> jsonDocument;
-    WiFiClientSecure client;
 
-    client.setInsecure();
+  StaticJsonDocument<1024> jsonDocument;
+  DeserializationError error;  
 
-    Serial.println("[HTTP] begin...\n");
-    // configure traged server and url
-    // http.begin("https://www.howsmyssl.com/a/check", ca); //HTTPS
+  String input_s = username + ":" + password;
+  String encoded = base64::encode(input_s);
+  String auth = "Basic " + encoded;
+
+  WiFiClientSecure client;
+  client.setInsecure();
+  if(WiFi.status() == WL_CONNECTED){
+
     String data = "D0=" + String(D0) + "&data=" + data + "&pass=parth";
 
     if (client.connect("fleetkaptan.up.railway.app", 443))
     {
       client.println("POST /api/rfid/" + uqid + "/" + username + "/read-esp-scanned HTTP/1.1");
-      // client.println("POST /api/rfid/8yaotc0wilsu/parth/read-esp-scanned HTTP/1.1");
       client.println("Host: fleetkaptan.up.railway.app");
       client.println("User-Agent: ESP32");
-
-      String input_s = username + ":" + password;
-      char *input = new char[input_s.length() + 1];
-      strcpy(input, input_s.c_str());
-      String inputString = String(input);
-      String encoded = base64::encode(inputString);
-      String auth = "Basic " + encoded;
-
-      // client.println("Authorization: Basic parth:123");
-      client.println("Authorization: Basic " + auth);
+      client.println("Authorization: " + auth);
       client.println("Content-Type: application/x-www-form-urlencoded;");
       client.println("Content-Length: " + String(data.length()));
       client.println();
       client.println(data);
       Serial.println(F("Data were sent successfully"));
-      while (client.available() == 0)
-        ;
-      String c{};
-      while (client.available())
-      {
-        c += (char)client.read();
+      while (client.connected()) {
+      String line = client.readStringUntil('\n');
+      if (line == "\r") {
+          Serial.println("headers received");
+          break;
+          }
       }
 
-      Serial.println(c);
-      DeserializationError error = deserializeJson(jsonDocument, c);
+      String response;
+      if (client.available()) {
+        response = client.readString();
+      }
+      response.trim();
+      Serial.println(response);
+      client.stop();
+
+
+      error = deserializeJson(jsonDocument, response);
 
       if (error)
       {
@@ -180,10 +183,9 @@ void post_data(String D0, String data){
 
       // Access the JSON data
       if (jsonDocument.containsKey("id") && !jsonDocument["id"].isNull()) {
-    // Access the "id" value
+
         int id = jsonDocument["id"];
         const char *uniqueId = jsonDocument["esp"]["unique_id"];
-        // const char *timestamp = jsonDocument["timestamp"];
         const char *value = jsonDocument["value"];
         Serial.print("ID: ");
         Serial.println(id);
@@ -197,7 +199,6 @@ void post_data(String D0, String data){
         Serial.println("ID not found or null");
       }
 
-      delete[] input;
     }
 
     else
@@ -319,6 +320,10 @@ void setup()
     }
     else
     {
+      //  Serial.println("Connection Status Negative");
+      // Serial.println("Turning the HotSpot On");
+      // // launchWeb();
+      // setupAP(); // Setup HotSpot
       Serial.println("Do nothing");
     }
   }
@@ -334,21 +339,21 @@ const char *AuthenticatedTag = "E3E7719B";
 
 void loop()
 {
-  get_data();
+  // get_data();
   
-  Serial.println("heya");
   
-  if (digitalRead(sw) == LOW)
+  while (digitalRead(sw) == LOW)
   {
-    Serial.println("working");
+    
     while (btSerial.available())
     {
       ssid_pass = btSerial.readString();
-      String ssid_pass_2 = ssid_pass;
+      String data_to_write_from_bt = ssid_pass;
       Serial.println(ssid_pass);
-      char *token;
+      //write rifd
     }
   }
+  // if rfid read than post_data(d0, data)
   delay(10000);
 
 }
@@ -468,3 +473,130 @@ void send_data_to_bt_and_setup_sta(void)
 }
 
 
+// void launchWeb()
+// {
+//   Serial.println("");
+//   if (WiFi.status() == WL_CONNECTED)
+//     Serial.println("WiFi connected");
+//   Serial.println("Local IP: ");
+//   Serial.println(WiFi.localIP());
+//   Serial.println("SoftAP IP: ");
+//   Serial.println(WiFi.softAPIP());
+
+//   delay(1000);
+//   createWebServer();
+//   // Start the server
+//   server.begin();
+//   Serial.println("Server started");
+// }
+
+// void setupAP(void)
+// {
+//   WiFi.mode(WIFI_STA);
+//   WiFi.disconnect();
+//   delay(100);
+//   int n = WiFi.scanNetworks();
+//   Serial.println("scan done");
+//   if (n == 0)
+//     Serial.println("no networks found");
+//   else
+//   {
+//     Serial.println(n);
+//     Serial.println(" networks found");
+//     for (int i = 0; i < n; ++i)
+//     {
+//       // Print SSID and RSSI for each network found
+//       Serial.println(i + 1);
+//       Serial.println(": ");
+//       Serial.println(WiFi.SSID(i));
+//       Serial.println(" (");
+//       Serial.println(WiFi.RSSI(i));
+//       Serial.println(")");
+//       // Serial.println((WiFi.encryptionType(i) == ENC_TYPE_NONE) ? " " : "*");
+//       delay(10);
+//     }
+//   }
+//   Serial.println("");
+//   st = "<ol>";
+//   for (int i = 0; i < n; ++i)
+//   {
+//     // Print SSID and RSSI for each network found
+//     st += "<li>";
+//     st += WiFi.SSID(i);
+//     st += " (";
+//     st += WiFi.RSSI(i);
+//     st += ")";
+//     // st += (WiFi.encryptionType(i) == ENC_TYPE_NONE) ? " " : "*";
+//     st += "</li>";
+//   }
+//   st += "</ol>";
+//   delay(100);
+//   WiFi.softAP("GridenPower", "");
+//   Serial.println("Initializing_softap_for_wifi credentials_modification");
+//   launchWeb();
+//   Serial.println("over");
+// }
+
+
+// void createWebServer()
+// {
+//   {
+//     server.on("/", []()
+//               {
+//       IPAddress ip = WiFi.softAPIP();
+//       String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
+//       content = "<!DOCTYPE HTML>\r\n<html>Welcome to Wifi Credentials Update page";
+//       content += "<form action=\"/scan\" method=\"POST\"><input type=\"submit\" value=\"scan\"></form>";
+//       content += ipStr;
+//       content += "<p>";
+//       content += st;
+//       content += "</p><form method='get' action='setting'><label>SSID: </label><input name='ssid' length=32><input name='pass' length=64><input type='submit'></form>";
+//       content += "</html>";
+//       server.send(200, "text/html", content); });
+//     server.on("/scan", []()
+//               {
+//       //setupAP();
+//       IPAddress ip = WiFi.softAPIP();
+//       String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
+//       content = "<!DOCTYPE HTML>\r\n<html>go back";
+//       server.send(200, "text/html", content); });
+//     server.on("/setting", []()
+//               {
+//       String qsid = server.arg("ssid");
+//       String qpass = server.arg("pass");
+//       if (qsid.length() > 0 && qpass.length() > 0) {
+//         Serial.println("clearing eeprom");
+//         for (int i = 0; i < 96; ++i) {
+//           EEPROM.write(i, 0);
+//         }
+//         Serial.println(qsid);
+//         Serial.println("");
+//         Serial.println(qpass);
+//         Serial.println("");
+//         Serial.println("writing eeprom ssid:");
+//         for (int i = 0; i < qsid.length(); ++i)
+//         {
+//           EEPROM.write(i, qsid[i]);
+//           Serial.println("Wrote: ");
+//           Serial.println(qsid[i]);
+//         }
+//         Serial.println("writing eeprom pass:");
+//         for (int i = 0; i < qpass.length(); ++i)
+//         {
+//           EEPROM.write(32 + i, qpass[i]);
+//           Serial.println("Wrote: ");
+//           Serial.println(qpass[i]);
+//         }
+//         EEPROM.commit();
+//         content = "{\"Success\":\"saved to eeprom... reset to boot into new wifi\"}";
+//         statusCode = 200;
+//         ESP.restart();
+//       } else {
+//         content = "{\"Error\":\"404 not found\"}";
+//         statusCode = 404;
+//         Serial.println("Sending 404");
+//       }
+//       server.sendHeader("Access-Control-Allow-Origin", "*");
+//       server.send(statusCode, "application/json", content); });
+//   }
+// }
