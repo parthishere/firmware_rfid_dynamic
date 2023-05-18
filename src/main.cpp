@@ -9,6 +9,7 @@
 
 #define SDA_SS_PIN 5 // 21 //ESP Interface Pin
 #define RST_PIN 15   // 22    //ESP Interface Pin
+#define ID_EEPROM_ADDRESS 226
 
 MFRC522 mfrc522(SDA_SS_PIN, RST_PIN); // create instance of class
 MFRC522::MIFARE_Key key;
@@ -23,6 +24,7 @@ String uqid = "";
 String username = "";
 String password = "";
 
+static int id;
 
 // Function Decalration
 bool checkWifi_connection(String username, String password, String uqid);
@@ -32,106 +34,92 @@ BluetoothSerial btSerial;
 
 void get_data()
 {
-  btSerial.end();
-  delay(100);
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    Serial.println("indide the function");
-    username.trim();
-    username.replace(" ", "");
-    username.replace("\0", "");
-    uqid.trim();
-    uqid.replace(" ", "");
-    uqid.replace("\0", "");
-    password.trim();
-    password.replace(" ", "");
-    password.replace("\0", "");
-
-    Serial.println(username);
-    Serial.println(uqid);
-    Serial.println(password);
-
-    WiFiClientSecure client;
-
-    btSerial.end();
-    WiFiClientSecure client;
-    // HTTPClient http;
-    client.setInsecure();
-
-    Serial.println("[HTTP] begin...\n");
-    // configure traged server and url
-    // http.begin("https://www.howsmyssl.com/a/check", ca); //HTTPS
-
-    if (client.connect("fleetkaptan.up.railway.app", 443))
-    {
-      // client.println("GET /api/rfid/" + uqid + "/" + username + "/write-to-rfid/ HTTP/1.1");
-      client.println("GET /api/rfid/8yaotc0wilsu/parth/write-to-rfid/ HTTP/1.1");
-      // String input_s = username + ":" + password_web;
-      // char *input = new char[input_s.length() + 1];
-      // strcpy(input, input_s.c_str());
-      // String inputString = String(input);
-      // String encoded = base64::encode(inputString);
-      // String auth = "Basic " + encoded;
-      client.println("Host: fleetkaptan.up.railway.app");
-      client.println("User-Agent: ESP32");
-      // client.println("Authorization: "+auth);
-      client.println("Authorization: Basic cGFydGg6MTIz");
-      client.println("Connection: close");
-      client.println();
-      Serial.println(F("Data were sent successfully"));
-
-      while (client.connected()) {
-        String line = client.readStringUntil('\n');
-        if (line == "\r") {
-            Serial.println("headers received");
-            break;
-          }
-      }
-
-      // delete[] input;
-      String c;
-      if (client.available()) {
-        c = client.readString();
-      }
-      c.trim();
-      Serial.println(c);
-      DynamicJsonDocument doc(2048);
-
-      DeserializationError error;
-      error = deserializeJson(doc, c);
-      if (error)
-      {
-        Serial.print("Deserialization error: ");
-        Serial.println(error.c_str());
-        return;
-      }
-
-      // Access the JSON data
-      int id = doc["id"];
-      const char *uniqueId = doc["esp"]["unique_id"];
-      // const char *timestamp = doc["timestamp"];
-      const char *value = doc["value"];
   
+  btSerial.end();
 
-      // Print the values
-      Serial.print("ID: ");
-      Serial.println(id);
-      Serial.print("Unique ID: ");
-      Serial.println(uniqueId);
-      // Serial.print("Timestamp: ");
-      // Serial.println(timestamp);
-      Serial.print("Value: ");
-      Serial.println(value);
+  StaticJsonDocument<1024> jsonDocument;
+  DeserializationError error;  
+
+  String input_s = username + ":" + password;
+  String encoded = base64::encode(input_s);
+  String auth = "Basic " + encoded;
+
+
+
+  WiFiClientSecure client;
+  client.setInsecure();
+
+  Serial.println("[HTTP] begin...\n");
+  if (client.connect("fleetkaptan.up.railway.app", 443))
+  {
+    client.println("GET /api/rfid/" + uqid + "/" + username + "/write-to-rfid/ HTTP/1.1");
+    client.println("Host: fleetkaptan.up.railway.app");
+    client.println("User-Agent: ESP32");
+    client.println("Authorization: "+ auth);
+    client.println("Connection: close");
+    client.println();
+    Serial.println(F("Data were sent successfully"));
+
+    while (client.connected()) {
+      String line = client.readStringUntil('\n');
+      if (line == "\r") {
+          Serial.println("headers received");
+          break;
+        }
     }
 
-    else
-    {
-      Serial.println(F("Connection wasnt established"));
+    String response;
+    if (client.available()) {
+      response = client.readString();
     }
-    Serial.println("we got the responnse");
+    response.trim();
+    Serial.println(response);
     client.stop();
-    
+
+
+    error = deserializeJson(jsonDocument, response);
+
+    if (error)
+    {
+      Serial.print("Deserialization error: ");
+      Serial.println(error.c_str());
+      return;
+    }
+
+
+    int id = jsonDocument["id"];
+    int storedId;
+
+    storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
+
+    if (id != storedId)
+    {
+      Serial.println("changes");
+      EEPROM.write(ID_EEPROM_ADDRESS, id);
+      EEPROM.commit();
+      //write to rfid
+    }
+    else{
+
+      Serial.println("Wont change");
+    }
+    const char* unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
+    const char* value_recived_from_server = jsonDocument["value"];
+
+    Serial.print("ID: ");
+    Serial.println(id);
+    Serial.print("Unique ID: ");
+    Serial.println(unique_id_recived_from_server);
+    Serial.print("Value: ");
+    Serial.println(value_recived_from_server);
   }
+
+  else
+  {
+    Serial.println(F("Connection wasnt established"));
+  }
+  Serial.println("we got the responnse");
+  
   btSerial.begin(9600);
 }
 
@@ -195,14 +183,14 @@ void post_data(String D0, String data){
     // Access the "id" value
         int id = jsonDocument["id"];
         const char *uniqueId = jsonDocument["esp"]["unique_id"];
-        const char *timestamp = jsonDocument["timestamp"];
+        // const char *timestamp = jsonDocument["timestamp"];
         const char *value = jsonDocument["value"];
         Serial.print("ID: ");
         Serial.println(id);
         Serial.print("Unique ID: ");
         Serial.println(uniqueId);
-        Serial.print("Timestamp: ");
-        Serial.println(timestamp);
+        // Serial.print("Timestamp: ");
+        // Serial.println(timestamp);
         Serial.print("Value: ");
         Serial.println(value);
       } else {
@@ -244,7 +232,11 @@ void setup()
   String esid;
   for (int i = 0; i < 32; ++i)
   {
-    esid += char(EEPROM.read(i));
+    char c = char(EEPROM.read(i));
+    if (c != 0) {
+    esid += c;
+   }
+
   }
   Serial.println();
   Serial.print("SSID: ");
@@ -255,7 +247,10 @@ void setup()
   String epass = "";
   for (int i = 32; i < 96; ++i)
   {
-    epass += char(EEPROM.read(i));
+    char c = char(EEPROM.read(i));
+    if (c != 0) {
+    epass += c;
+    }
   }
   Serial.print("PASS: ");
   Serial.println(epass);
@@ -264,7 +259,10 @@ void setup()
 
   for (int i = 96; i < 128; ++i)
   {
-    username += char(EEPROM.read(i));
+    char c = char(EEPROM.read(i));
+    if (c != 0) {
+    username += c;
+    }
   }
   Serial.print("USERNAME: ");
   Serial.println(username);
@@ -273,7 +271,10 @@ void setup()
 
   for (int i = 128; i < 192; ++i)
   {
-    password += char(EEPROM.read(i));
+    char c = char(EEPROM.read(i));
+    if (c != 0) {
+    password += c;
+    }
   }
   Serial.print("PASSWORD: ");
   Serial.println(password);
@@ -282,12 +283,19 @@ void setup()
 
   for (int i = 196; i < 224; ++i)
   {
-    uqid += char(EEPROM.read(i));
+    char c = char(EEPROM.read(i));
+    if (c != 0) {
+    uqid += c;
+    }
   }
   Serial.print("uqid: ");
   Serial.println(uqid);
 
   delay(100);
+
+  username.trim();
+  uqid.trim();
+  password.trim();
 
   WiFi.begin(esid.c_str(), epass.c_str());
   if (checkWifi_connection(uqid, username, password))
@@ -317,7 +325,7 @@ void setup()
 
   Serial.println();
   Serial.println("Waiting...");
-  get_data();
+  
   
 }
 
@@ -326,13 +334,13 @@ const char *AuthenticatedTag = "E3E7719B";
 
 void loop()
 {
-  // delay(10000);
+  get_data();
   
-  
+  Serial.println("heya");
   
   if (digitalRead(sw) == LOW)
   {
-
+    Serial.println("working");
     while (btSerial.available())
     {
       ssid_pass = btSerial.readString();
@@ -341,6 +349,7 @@ void loop()
       char *token;
     }
   }
+  delay(10000);
 
 }
 
