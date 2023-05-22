@@ -9,14 +9,41 @@
 
 #define SDA_SS_PIN 5 // 21 //ESP Interface Pin
 #define RST_PIN 15   // 22    //ESP Interface Pin
+
+#define bluetooth_switch 14
+#define BLUE 27 
+#define BLUE2 26
+#define YELLOW 12
+#define WHITE 13
+#define RED 21
+#define RED2 25
+
+#define MODE_SW1 32
+#define MODE_SW2 35
+
 #define ID_EEPROM_ADDRESS 226
+#define SIZE_BUFFER 18
+#define MAX_SIZE_BLOCK 16
 
 MFRC522 mfrc522(SDA_SS_PIN, RST_PIN); // create instance of class
 MFRC522::MIFARE_Key key;
-// WebServer server(80);
+MFRC522::StatusCode status;
+// WebServer server(80);         
 
-int sw = 14;
-const int LED1 = 1;
+/* Set the block to which we want to write data */
+/* Be aware of Sector Trailer Blocks */
+int blockNum = 2;  
+
+/* Create an array of 16 Bytes and fill it with data */
+/* This is the actual data which is going to be written into the card */
+/* Create another array to read data from Block */
+/* Length of buffer should be 2 Bytes more than the size of Block (16 Bytes) */
+
+
+byte bufferLen = 18;
+byte readBlockData[18];
+
+
 // Variables
 
 String  ssid_pass;     // character and character string buffer
@@ -30,11 +57,18 @@ String esid;
 String epass = "";
 int statusCode;
 
+
+long last_time_recived_data;
+const char *AuthenticatedTag = "E3E7719B";
+
 static int id;
 
 // Function Decalration
 bool checkWifi_connection(String username, String password, String uqid);
 void send_data_to_bt_and_setup_sta(void);
+
+bool readingData();
+bool writingData(String write_data);
 
 BluetoothSerial btSerial;
 
@@ -53,7 +87,7 @@ void get_data()
   WiFiClientSecure client;
   client.setInsecure();
 
-  Serial.println("[HTTP] begin...\n");
+  // Serial.println("[HTTP] begin...\n");
   if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
   {
     client.println("GET /api/rfid/" + uqid + "/" + username + "/write-to-rfid/ HTTP/1.1");
@@ -62,12 +96,11 @@ void get_data()
     client.println("Authorization: "+ auth);
     client.println("Connection: close");
     client.println();
-    Serial.println(F("Data were sent successfully"));
+
 
     while (client.connected()) {
       String line = client.readStringUntil('\n');
       if (line == "\r") {
-          Serial.println("headers received");
           break;
         }
     }
@@ -77,7 +110,6 @@ void get_data()
       response = client.readString();
     }
     response.trim();
-    Serial.println(response);
     client.stop();
 
 
@@ -92,41 +124,54 @@ void get_data()
 
 
     int id = jsonDocument["id"];
-    int storedId;
-
-    storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
-
-    if (id != storedId)
-    {
-      Serial.println("changes");
-      EEPROM.write(ID_EEPROM_ADDRESS, id);
-      EEPROM.commit();
-      //write to rfid
-    }
-    else{
-
-      Serial.println("Wont change");
-    }
     const char* unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
     const char* value_recived_from_server = jsonDocument["value"];
 
-    Serial.print("ID: ");
-    Serial.println(id);
-    Serial.print("Unique ID: ");
-    Serial.println(unique_id_recived_from_server);
-    Serial.print("Value: ");
-    Serial.println(value_recived_from_server);
+    int storedId;
+
+    storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
+    digitalWrite(BLUE, HIGH);
+    if (id != storedId)
+    {
+      if (uqid.c_str() == unique_id_recived_from_server){
+        Serial.println("changes");
+        EEPROM.write(ID_EEPROM_ADDRESS, id);
+        EEPROM.commit();
+        Serial.println(value_recived_from_server);
+        String value_recived_from_server = String(value_recived_from_server);
+        value_recived_from_server = value_recived_from_server.substring(0, 16);
+        bool card_written = writingData(value_recived_from_server);
+
+        while(!card_written){
+          digitalWrite(YELLOW, HIGH);
+          card_written = writingData(value_recived_from_server);
+          delay(5000);
+        }
+        digitalWrite(YELLOW, LOW);
+        digitalWrite(WHITE, HIGH);
+        mfrc522.PICC_HaltA();
+        // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
+        mfrc522.PCD_StopCrypto1();
+          // WriteDataToBlock(blockNum, data);
+      }
+      
+      //write to rfid
+    }
+    else{
+      Serial.println("Wont change");
+    }
+  
   }
 
   else
   {
     Serial.println(F("Connection wasnt established"));
   }
-  Serial.println("we got the responnse");btSerial.begin(9600);
+ 
+ digitalWrite(BLUE, LOW);
   
   btSerial.begin(9600);
 }
-
 
 void post_data(String D0, String data){
   btSerial.end();
@@ -168,7 +213,7 @@ void post_data(String D0, String data){
         response = client.readString();
       }
       response.trim();
-      Serial.println(response);
+      // Serial.println(response);
       client.stop();
 
 
@@ -215,14 +260,22 @@ void setup()
 {
 
   Serial.begin(9600);
-  Serial.println("hey");
   delay(100);
   btSerial.begin(9600);
   delay(10);
 
   Serial.println("Ready");
 
-  pinMode(sw, INPUT_PULLUP);
+  pinMode(bluetooth_switch, INPUT_PULLUP);
+  pinMode(MODE_SW1, INPUT_PULLUP);
+  pinMode(MODE_SW2, INPUT_PULLUP);
+  pinMode(WHITE, OUTPUT);
+  pinMode(YELLOW, OUTPUT);
+  pinMode(BLUE, OUTPUT);
+  pinMode(BLUE2, OUTPUT);
+  pinMode(RED, OUTPUT);
+  pinMode(RED2, OUTPUT);
+  
 
 
   EEPROM.begin(512); // Initialasing EEPROM
@@ -305,26 +358,29 @@ void setup()
 
     SPI.begin(); // Initiate  SPI bus
     mfrc522.PCD_Init();
+    mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max); 
     return;
   }
   else
   {
-
+    while(WiFi.status() != WL_CONNECTED)
+    {
     // Setup Bluetooth
-    Serial.print("State of switch");
-    Serial.print(digitalRead(sw));
-    if (digitalRead(sw) == LOW)
-    {
-      Serial.println("Turning the Bluetooth On");
-      send_data_to_bt_and_setup_sta();
-    }
-    else
-    {
-      //  Serial.println("Connection Status Negative");
-      // Serial.println("Turning the HotSpot On");
-      // // launchWeb();
-      // setupAP(); // Setup HotSpot
-      Serial.println("Do nothing");
+      Serial.print("State of switch");
+      Serial.print(digitalRead(bluetooth_switch));
+      if (digitalRead(bluetooth_switch) == LOW)
+      {
+        Serial.println("Turning the Bluetooth On");
+        send_data_to_bt_and_setup_sta();
+      }
+      else
+      {
+        //  Serial.println("Connection Status Negative");
+        // Serial.println("Turning the HotSpot On");
+        // // launchWeb();
+        // setupAP(); // Setup HotSpot
+        Serial.println("Do nothing");
+      }
     }
   }
 
@@ -334,28 +390,64 @@ void setup()
   
 }
 
-long last_time_scaned_rfid;
-const char *AuthenticatedTag = "E3E7719B";
-
 void loop()
 {
-  // get_data();
-  
-  
-  while (digitalRead(sw) == LOW)
+  if(millis() - last_time_recived_data > 7000){
+    Serial.println("wil get");
+    get_data();
+    last_time_recived_data = millis();
+  }
+   
+  while (digitalRead(bluetooth_switch) == LOW)
   {
     
     while (btSerial.available())
     {
+      digitalWrite(BLUE, HIGH);
       ssid_pass = btSerial.readString();
+      
       String data_to_write_from_bt = ssid_pass;
-      Serial.println(ssid_pass);
+      Serial.println(ssid_pass); 
+
+      String dataToWrite = ssid_pass;  // Example string to write
+      dataToWrite = dataToWrite.substring(0, 16);
+      
+      bool card_written = writingData(dataToWrite);
+      while(!card_written){
+        digitalWrite(YELLOW, HIGH);
+        card_written = writingData(dataToWrite);
+        delay(5000);
+      }
+      digitalWrite(YELLOW, LOW);
+      digitalWrite(WHITE, HIGH);
+      mfrc522.PICC_HaltA();
+      // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
+      mfrc522.PCD_StopCrypto1();
+      digitalWrite(BLUE, LOW);
+      break;
       //write rifd
     }
   }
-  // if rfid read than post_data(d0, data)
-  delay(10000);
 
+  bool card_readed = readingData();
+  if (card_readed){
+    Serial.println("card readed");
+    digitalWrite(WHITE, HIGH);
+    delay(500);
+    digitalWrite(WHITE, LOW);
+    delay(500);
+    digitalWrite(WHITE, HIGH);
+    delay(500);
+    digitalWrite(WHITE, LOW);
+    delay(500);
+    digitalWrite(WHITE, HIGH);
+    delay(500);
+    digitalWrite(WHITE, LOW);
+    delay(500);
+  }
+  mfrc522.PICC_HaltA();
+  // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
+  mfrc522.PCD_StopCrypto1();
 }
 
 bool checkWifi_connection(String username, String password, String uqid)
@@ -384,7 +476,7 @@ bool checkWifi_connection(String username, String password, String uqid)
 void send_data_to_bt_and_setup_sta(void)
 {
 
-  while (digitalRead(sw) == LOW)
+  while (digitalRead(bluetooth_switch) == LOW)
   {
 
     while (btSerial.available())
@@ -472,6 +564,129 @@ void send_data_to_bt_and_setup_sta(void)
   }
 }
 
+//reads data from card/tag
+bool readingData() {
+  if (!mfrc522.PICC_IsNewCardPresent()) {
+    return false;
+  }
+  // Select a card
+  if (!mfrc522.PICC_ReadCardSerial()) {
+    return false;
+  }
+  //prints the technical details of the card/tag
+  mfrc522.PICC_DumpDetailsToSerial(&(mfrc522.uid));
+
+  for (byte i = 0; i < mfrc522.uid.size; i++)
+  {
+    // debug(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : "");
+    // debug(mfrc522.uid.uidByte[i], HEX);
+    content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : ""));
+    content.concat(String(mfrc522.uid.uidByte[i], HEX));
+  }
+
+  Serial.println("");
+  content.toUpperCase();
+  char *idTag = new char[content.length() + 1];
+  strcpy(idTag, content.c_str());
+
+  delay(100);
+  if (strcmp(idTag, AuthenticatedTag) == 0)
+  {
+    // same tag
+    //  we have to set logic for setting up the senind of id tag
+    Serial.println("yes inside the authentication");
+
+  }
+
+  //prepare the key - all keys are set to FFFFFFFFFFFFh
+  for (byte i = 0; i < 6; i++) key.keyByte[i] = 0xFF;
+
+  //buffer for read data
+  byte buffer[SIZE_BUFFER] = { 0 };
+
+  //the block to operate
+  byte block = 1;
+  byte size = SIZE_BUFFER;                                                                          //authenticates the block to operate
+  status = mfrc522.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A, blockNum, &key, &(mfrc522.uid));  //line 834 of MFRC522.cpp file
+  if (status != MFRC522::STATUS_OK) {
+    Serial.print(F("Authentication failed: "));
+    Serial.println(mfrc522.GetStatusCodeName(status));
+    return false;
+  }
+
+  //read data from block
+  status = mfrc522.MIFARE_Read(blockNum, buffer, &size);
+  if (status != MFRC522::STATUS_OK) {
+    Serial.print(F("Reading failed: "));
+    Serial.println(mfrc522.GetStatusCodeName(status));
+    return false;
+  }
+
+  Serial.print(F("\nData from block ["));
+  Serial.print(block);
+  Serial.print(F("]: "));
+
+  for (uint8_t i = 0; i < MAX_SIZE_BLOCK; i++) {
+    Serial.write(buffer[i]);
+  }
+
+  Serial.println(" ");
+
+  Serial.println();
+  return true;
+  //printHex(buffer,SIZE_BUFFER);
+}
+
+
+bool writingData(String write_data) {
+
+   Serial.println("1");
+  if (!mfrc522.PICC_IsNewCardPresent()) {
+    return false;
+  }
+  // Select a card
+  Serial.println("2");
+  if (!mfrc522.PICC_ReadCardSerial()) {
+    return false;
+  }
+
+
+  //prints thecnical details from of the card/tag
+  Serial.println("3");
+  mfrc522.PICC_DumpDetailsToSerial(&(mfrc522.uid));
+
+ 
+  for (byte i = 0; i < 6; i++) key.keyByte[i] = 0xFF;
+
+  // String dataToWrite = "Hello, RFID!";  // Example string to write
+  byte data[MAX_SIZE_BLOCK];  // Array to hold 16 bytes of data
+
+  memset(data, 0, sizeof(data)); // Clear the data array
+  memcpy(data, write_data.c_str(), min(write_data.length(), sizeof(data)));
+
+  status = mfrc522.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A,
+                                    blockNum, &key, &(mfrc522.uid));
+
+  if (status != MFRC522::STATUS_OK) {
+    Serial.print(F("PCD_Authenticate() failed: "));
+    Serial.println(mfrc522.GetStatusCodeName(status));
+    
+    return false;
+  }
+  //else Serial.println(F("PCD_Authenticate() success: "));
+
+  //Writes in the block
+  status = mfrc522.MIFARE_Write(blockNum, data, MAX_SIZE_BLOCK);
+  if (status != MFRC522::STATUS_OK) {
+    Serial.print(F("MIFARE_Write() failed: "));
+    Serial.println(mfrc522.GetStatusCodeName(status));
+    return false;
+  } else {
+    Serial.println(F("MIFARE_Write() success: "));
+    return true;
+  }
+
+}
 
 // void launchWeb()
 // {
