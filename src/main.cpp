@@ -411,7 +411,7 @@ void loop()
 
       String dataToWrite = ssid_pass;  // Example string to write
       dataToWrite = dataToWrite.substring(0, 16);
-      
+      bool a = readUid();
       bool card_written = writingData(dataToWrite);
       while(!card_written){
         digitalWrite(YELLOW, HIGH);
@@ -564,6 +564,32 @@ void send_data_to_bt_and_setup_sta(void)
   }
 }
 
+
+bool readUid(){
+  if (!mfrc522.PICC_IsNewCardPresent()) {
+    return false;
+  }
+  // Select a card
+  if (!mfrc522.PICC_ReadCardSerial()) {
+    return false;
+  }
+  //prints the technical details of the card/tag
+  mfrc522.PICC_DumpDetailsToSerial(&(mfrc522.uid));
+
+  for (byte i = 0; i < mfrc522.uid.size; i++)
+  {
+    // debug(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : "");
+    // debug(mfrc522.uid.uidByte[i], HEX);
+    content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : ""));
+    content.concat(String(mfrc522.uid.uidByte[i], HEX));
+  }
+
+  Serial.println("");
+  content.toUpperCase();
+  char *idTag = new char[content.length() + 1];
+  strcpy(idTag, content.c_str());
+
+}
 //reads data from card/tag
 bool readingData() {
   if (!mfrc522.PICC_IsNewCardPresent()) {
