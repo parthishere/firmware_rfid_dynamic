@@ -173,7 +173,7 @@ void get_data()
   btSerial.begin(9600);
 }
 
-void post_data(String D0, String data){
+void post_data(String D0, String data, String uid){
   btSerial.end();
 
   StaticJsonDocument<1024> jsonDocument;
@@ -187,7 +187,7 @@ void post_data(String D0, String data){
   client.setInsecure();
   if(WiFi.status() == WL_CONNECTED){
 
-    String data = "D0=" + String(D0) + "&data=" + data + "&pass=parth";
+    String data = "D0=" + String(D0) + "&data=" + data + "&uid=" + uid;
 
     if (client.connect("fleetkaptan.up.railway.app", 443))
     {
