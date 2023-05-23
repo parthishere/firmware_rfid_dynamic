@@ -132,37 +132,38 @@ void get_data()
 
     storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
 
-    if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server))
+    if (id != storedId && strcmp(uqid.c_str(),unique_id_recived_from_server) == 0)
     {
+      
       digitalWrite(BLUE2, HIGH);
       Serial.println("changes");
       EEPROM.write(ID_EEPROM_ADDRESS, id);
       EEPROM.commit();
       Serial.println(value_recived_from_server);
-      String value_recived_from_server = String(value_recived_from_server);
-      value_recived_from_server = value_recived_from_server.substring(0, 16);
-      bool card_written = writingData(value_recived_from_server);
+      String val_to_write = String(value_recived_from_server);
+      val_to_write = val_to_write.substring(0, 16);
+      bool card_written = writingData(val_to_write);
 
       while (!card_written)
       {
         digitalWrite(YELLOW, HIGH);
-        card_written = writingData(value_recived_from_server);
-        delay(5000);
+        card_written = writingData(val_to_write);
+        delay(1000);
       }
       digitalWrite(YELLOW, LOW);
 
       digitalWrite(WHITE, HIGH);
-      delay(500);
+      delay(100);
       digitalWrite(WHITE, LOW);
-      delay(500);
+      delay(100);
       digitalWrite(WHITE, HIGH);
-      delay(500);
+      delay(100);
       digitalWrite(WHITE, LOW);
-      delay(500);
+      delay(100);
       digitalWrite(WHITE, HIGH);
-      delay(500);
+      delay(100);
       digitalWrite(WHITE, LOW);
-      delay(500);
+      delay(100);
 
       digitalWrite(BLUE2, LOW);
       mfrc522.PICC_HaltA();
@@ -172,6 +173,7 @@ void get_data()
 
       // write to rfid
     }
+    
 
   }
 
@@ -378,7 +380,7 @@ void setup()
   if (checkWifi_connection(uqid, username, password))
   {
     Serial.println("Succesfully Connected!!!");
-
+    digitalWrite(RED, 0);
     SPI.begin(); // Initiate  SPI bus
     mfrc522.PCD_Init();
     mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
@@ -388,6 +390,7 @@ void setup()
   {
     while (WiFi.status() != WL_CONNECTED)
     {
+      digitalWrite(RED, 1);
       // Setup Bluetooth
       Serial.print("State of switch");
       Serial.print(digitalRead(bluetooth_switch));
@@ -407,6 +410,7 @@ void setup()
         Serial.println("Do nothing");
       }
     }
+    
   }
 
   Serial.println();
@@ -441,7 +445,7 @@ void loop()
       {
         digitalWrite(YELLOW, HIGH);
         card_written = writingData(dataToWrite);
-        delay(5000);
+        delay(1000);
       }
       digitalWrite(YELLOW, LOW);
       digitalWrite(WHITE, HIGH);
@@ -456,7 +460,7 @@ void loop()
       delay(200);
       digitalWrite(WHITE, LOW);
       delay(200);
-      
+
       mfrc522.PICC_HaltA();
       // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
       mfrc522.PCD_StopCrypto1();
