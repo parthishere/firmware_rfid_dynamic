@@ -11,12 +11,13 @@
 #define RST_PIN 15   // 22    //ESP Interface Pin
 
 #define bluetooth_switch 14
-#define BLUE 27 
-#define BLUE2 26
-#define YELLOW 12
-#define WHITE 13
-#define RED 21
-#define RED2 25
+
+#define BLUE 27   // mode on button press or not // continuous means mode 1 blinking means mode 2
+#define BLUE2 26  // data available or not
+#define YELLOW 12 // error card not detected
+#define WHITE 13  // write sucsess full
+#define RED 21    // wifi
+#define RED2 25  // server error
 
 #define MODE_SW1 32
 #define MODE_SW2 35
@@ -28,25 +29,23 @@
 MFRC522 mfrc522(SDA_SS_PIN, RST_PIN); // create instance of class
 MFRC522::MIFARE_Key key;
 MFRC522::StatusCode status;
-// WebServer server(80);         
+// WebServer server(80);
 
 /* Set the block to which we want to write data */
 /* Be aware of Sector Trailer Blocks */
-int blockNum = 2;  
+int blockNum = 2;
 
 /* Create an array of 16 Bytes and fill it with data */
 /* This is the actual data which is going to be written into the card */
 /* Create another array to read data from Block */
 /* Length of buffer should be 2 Bytes more than the size of Block (16 Bytes) */
 
-
 byte bufferLen = 18;
 byte readBlockData[18];
 
-
 // Variables
 
-String  ssid_pass;     // character and character string buffer
+String ssid_pass; // character and character string buffer
 String uqid = "";
 String username = "";
 String password = "";
@@ -57,7 +56,6 @@ String esid;
 String epass = "";
 int statusCode;
 
-
 long last_time_recived_data;
 const char *AuthenticatedTag = "E3E7719B";
 
@@ -66,7 +64,7 @@ static int id;
 // Function Decalration
 bool checkWifi_connection(String username, String password, String uqid);
 void send_data_to_bt_and_setup_sta(void);
-
+String readUid();
 bool readingData();
 bool writingData(String write_data);
 
@@ -74,11 +72,11 @@ BluetoothSerial btSerial;
 
 void get_data()
 {
-  
+
   btSerial.end();
 
   StaticJsonDocument<1024> jsonDocument;
-  DeserializationError error;  
+  DeserializationError error;
 
   String input_s = username + ":" + password;
   String encoded = base64::encode(input_s);
@@ -90,28 +88,30 @@ void get_data()
   // Serial.println("[HTTP] begin...\n");
   if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
   {
+    
     client.println("GET /api/rfid/" + uqid + "/" + username + "/write-to-rfid/ HTTP/1.1");
     client.println("Host: fleetkaptan.up.railway.app");
     client.println("User-Agent: ESP32");
-    client.println("Authorization: "+ auth);
+    client.println("Authorization: " + auth);
     client.println("Connection: close");
     client.println();
 
-
-    while (client.connected()) {
+    while (client.connected())
+    {
       String line = client.readStringUntil('\n');
-      if (line == "\r") {
-          break;
-        }
+      if (line == "\r")
+      {
+        break;
+      }
     }
 
     String response;
-    if (client.available()) {
+    if (client.available())
+    {
       response = client.readString();
     }
     response.trim();
     client.stop();
-
 
     error = deserializeJson(jsonDocument, response);
 
@@ -122,62 +122,76 @@ void get_data()
       return;
     }
 
+    digitalWrite(RED2, LOW);
 
     int id = jsonDocument["id"];
-    const char* unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
-    const char* value_recived_from_server = jsonDocument["value"];
+    const char *unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
+    const char *value_recived_from_server = jsonDocument["value"];
 
     int storedId;
 
     storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
-    digitalWrite(BLUE, HIGH);
-    if (id != storedId)
-    {
-      if (uqid.c_str() == unique_id_recived_from_server){
-        Serial.println("changes");
-        EEPROM.write(ID_EEPROM_ADDRESS, id);
-        EEPROM.commit();
-        Serial.println(value_recived_from_server);
-        String value_recived_from_server = String(value_recived_from_server);
-        value_recived_from_server = value_recived_from_server.substring(0, 16);
-        bool card_written = writingData(value_recived_from_server);
 
-        while(!card_written){
-          digitalWrite(YELLOW, HIGH);
-          card_written = writingData(value_recived_from_server);
-          delay(5000);
-        }
-        digitalWrite(YELLOW, LOW);
-        digitalWrite(WHITE, HIGH);
-        mfrc522.PICC_HaltA();
-        // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
-        mfrc522.PCD_StopCrypto1();
-          // WriteDataToBlock(blockNum, data);
+    if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server))
+    {
+      digitalWrite(BLUE2, HIGH);
+      Serial.println("changes");
+      EEPROM.write(ID_EEPROM_ADDRESS, id);
+      EEPROM.commit();
+      Serial.println(value_recived_from_server);
+      String value_recived_from_server = String(value_recived_from_server);
+      value_recived_from_server = value_recived_from_server.substring(0, 16);
+      bool card_written = writingData(value_recived_from_server);
+
+      while (!card_written)
+      {
+        digitalWrite(YELLOW, HIGH);
+        card_written = writingData(value_recived_from_server);
+        delay(5000);
       }
-      
-      //write to rfid
+      digitalWrite(YELLOW, LOW);
+
+      digitalWrite(WHITE, HIGH);
+      delay(500);
+      digitalWrite(WHITE, LOW);
+      delay(500);
+      digitalWrite(WHITE, HIGH);
+      delay(500);
+      digitalWrite(WHITE, LOW);
+      delay(500);
+      digitalWrite(WHITE, HIGH);
+      delay(500);
+      digitalWrite(WHITE, LOW);
+      delay(500);
+
+      digitalWrite(BLUE2, LOW);
+      mfrc522.PICC_HaltA();
+      // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
+      mfrc522.PCD_StopCrypto1();
+      // WriteDataToBlock(blockNum, data);
+
+      // write to rfid
     }
-    else{
-      Serial.println("Wont change");
-    }
-  
+
   }
 
   else
   {
     Serial.println(F("Connection wasnt established"));
+    digitalWrite(RED2, HIGH);
   }
- 
- digitalWrite(BLUE, LOW);
+
   
+
   btSerial.begin(9600);
 }
 
-void post_data(String D0, String data, String uid){
+void post_data(String D0, String data, String uid)
+{
   btSerial.end();
 
   StaticJsonDocument<1024> jsonDocument;
-  DeserializationError error;  
+  DeserializationError error;
 
   String input_s = username + ":" + password;
   String encoded = base64::encode(input_s);
@@ -185,7 +199,8 @@ void post_data(String D0, String data, String uid){
 
   WiFiClientSecure client;
   client.setInsecure();
-  if(WiFi.status() == WL_CONNECTED){
+  if (WiFi.status() == WL_CONNECTED)
+  {
 
     String data = "D0=" + String(D0) + "&data=" + data + "&uid=" + uid;
 
@@ -200,22 +215,24 @@ void post_data(String D0, String data, String uid){
       client.println();
       client.println(data);
       Serial.println(F("Data were sent successfully"));
-      while (client.connected()) {
-      String line = client.readStringUntil('\n');
-      if (line == "\r") {
+      while (client.connected())
+      {
+        String line = client.readStringUntil('\n');
+        if (line == "\r")
+        {
           Serial.println("headers received");
           break;
-          }
+        }
       }
 
       String response;
-      if (client.available()) {
+      if (client.available())
+      {
         response = client.readString();
       }
       response.trim();
       // Serial.println(response);
       client.stop();
-
 
       error = deserializeJson(jsonDocument, response);
 
@@ -227,7 +244,8 @@ void post_data(String D0, String data, String uid){
       }
 
       // Access the JSON data
-      if (jsonDocument.containsKey("id") && !jsonDocument["id"].isNull()) {
+      if (jsonDocument.containsKey("id") && !jsonDocument["id"].isNull())
+      {
 
         int id = jsonDocument["id"];
         const char *uniqueId = jsonDocument["esp"]["unique_id"];
@@ -240,10 +258,11 @@ void post_data(String D0, String data, String uid){
         // Serial.println(timestamp);
         Serial.print("Value: ");
         Serial.println(value);
-      } else {
+      }
+      else
+      {
         Serial.println("ID not found or null");
       }
-
     }
 
     else
@@ -267,16 +286,16 @@ void setup()
   Serial.println("Ready");
 
   pinMode(bluetooth_switch, INPUT_PULLUP);
+
   pinMode(MODE_SW1, INPUT_PULLUP);
   pinMode(MODE_SW2, INPUT_PULLUP);
+
   pinMode(WHITE, OUTPUT);
   pinMode(YELLOW, OUTPUT);
   pinMode(BLUE, OUTPUT);
   pinMode(BLUE2, OUTPUT);
   pinMode(RED, OUTPUT);
   pinMode(RED2, OUTPUT);
-  
-
 
   EEPROM.begin(512); // Initialasing EEPROM
   delay(200);
@@ -287,10 +306,10 @@ void setup()
   for (int i = 0; i < 32; ++i)
   {
     char c = char(EEPROM.read(i));
-    if (c != 0) {
-    esid += c;
-   }
-
+    if (c != 0)
+    {
+      esid += c;
+    }
   }
   Serial.println();
   Serial.print("SSID: ");
@@ -302,8 +321,9 @@ void setup()
   for (int i = 32; i < 96; ++i)
   {
     char c = char(EEPROM.read(i));
-    if (c != 0) {
-    epass += c;
+    if (c != 0)
+    {
+      epass += c;
     }
   }
   Serial.print("PASS: ");
@@ -314,8 +334,9 @@ void setup()
   for (int i = 96; i < 128; ++i)
   {
     char c = char(EEPROM.read(i));
-    if (c != 0) {
-    username += c;
+    if (c != 0)
+    {
+      username += c;
     }
   }
   Serial.print("USERNAME: ");
@@ -326,8 +347,9 @@ void setup()
   for (int i = 128; i < 192; ++i)
   {
     char c = char(EEPROM.read(i));
-    if (c != 0) {
-    password += c;
+    if (c != 0)
+    {
+      password += c;
     }
   }
   Serial.print("PASSWORD: ");
@@ -338,8 +360,9 @@ void setup()
   for (int i = 196; i < 224; ++i)
   {
     char c = char(EEPROM.read(i));
-    if (c != 0) {
-    uqid += c;
+    if (c != 0)
+    {
+      uqid += c;
     }
   }
   Serial.print("uqid: ");
@@ -358,23 +381,25 @@ void setup()
 
     SPI.begin(); // Initiate  SPI bus
     mfrc522.PCD_Init();
-    mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max); 
+    mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
     return;
   }
   else
   {
-    while(WiFi.status() != WL_CONNECTED)
+    while (WiFi.status() != WL_CONNECTED)
     {
-    // Setup Bluetooth
+      // Setup Bluetooth
       Serial.print("State of switch");
       Serial.print(digitalRead(bluetooth_switch));
       if (digitalRead(bluetooth_switch) == LOW)
       {
+        digitalWrite(BLUE, HIGH);
         Serial.println("Turning the Bluetooth On");
         send_data_to_bt_and_setup_sta();
       }
       else
       {
+        digitalWrite(BLUE, 0);
         //  Serial.println("Connection Status Negative");
         // Serial.println("Turning the HotSpot On");
         // // launchWeb();
@@ -386,51 +411,64 @@ void setup()
 
   Serial.println();
   Serial.println("Waiting...");
-  
-  
 }
 
 void loop()
 {
-  if(millis() - last_time_recived_data > 7000){
+  if (millis() - last_time_recived_data > 9000)
+  {
     Serial.println("wil get");
     get_data();
     last_time_recived_data = millis();
   }
-   
+
   while (digitalRead(bluetooth_switch) == LOW)
   {
-    
+    digitalWrite(BLUE, HIGH);
     while (btSerial.available())
     {
       digitalWrite(BLUE, HIGH);
       ssid_pass = btSerial.readString();
-      
-      String data_to_write_from_bt = ssid_pass;
-      Serial.println(ssid_pass); 
 
-      String dataToWrite = ssid_pass;  // Example string to write
+      String data_to_write_from_bt = ssid_pass;
+      Serial.println(ssid_pass);
+
+      String dataToWrite = ssid_pass; // Example string to write
       dataToWrite = dataToWrite.substring(0, 16);
       bool a = readUid();
       bool card_written = writingData(dataToWrite);
-      while(!card_written){
+      while (!card_written)
+      {
         digitalWrite(YELLOW, HIGH);
         card_written = writingData(dataToWrite);
         delay(5000);
       }
       digitalWrite(YELLOW, LOW);
       digitalWrite(WHITE, HIGH);
+      delay(200);
+      digitalWrite(WHITE, LOW);
+      delay(200);
+      digitalWrite(WHITE, HIGH);
+      delay(200);
+      digitalWrite(WHITE, LOW);
+      delay(200);
+      digitalWrite(WHITE, HIGH);
+      delay(200);
+      digitalWrite(WHITE, LOW);
+      delay(200);
+      
       mfrc522.PICC_HaltA();
       // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
       mfrc522.PCD_StopCrypto1();
       digitalWrite(BLUE, LOW);
       break;
-      //write rifd
+      // write rifd
     }
   }
-
+  digitalWrite(BLUE, 0);
   bool card_readed = readingData();
-  if (card_readed){
+  if (card_readed)
+  {
     Serial.println("card readed");
     digitalWrite(WHITE, HIGH);
     delay(500);
@@ -564,16 +602,18 @@ void send_data_to_bt_and_setup_sta(void)
   }
 }
 
-
-bool readUid(){
-  if (!mfrc522.PICC_IsNewCardPresent()) {
-    return false;
+String readUid()
+{
+  if (!mfrc522.PICC_IsNewCardPresent())
+  {
+    return "";
   }
   // Select a card
-  if (!mfrc522.PICC_ReadCardSerial()) {
-    return false;
+  if (!mfrc522.PICC_ReadCardSerial())
+  {
+    return "";
   }
-  //prints the technical details of the card/tag
+  // prints the technical details of the card/tag
   mfrc522.PICC_DumpDetailsToSerial(&(mfrc522.uid));
 
   for (byte i = 0; i < mfrc522.uid.size; i++)
@@ -589,17 +629,21 @@ bool readUid(){
   char *idTag = new char[content.length() + 1];
   strcpy(idTag, content.c_str());
 
+  return idTag;
 }
-//reads data from card/tag
-bool readingData() {
-  if (!mfrc522.PICC_IsNewCardPresent()) {
+// reads data from card/tag
+bool readingData()
+{
+  if (!mfrc522.PICC_IsNewCardPresent())
+  {
     return false;
   }
   // Select a card
-  if (!mfrc522.PICC_ReadCardSerial()) {
+  if (!mfrc522.PICC_ReadCardSerial())
+  {
     return false;
   }
-  //prints the technical details of the card/tag
+  // prints the technical details of the card/tag
   mfrc522.PICC_DumpDetailsToSerial(&(mfrc522.uid));
 
   for (byte i = 0; i < mfrc522.uid.size; i++)
@@ -621,28 +665,30 @@ bool readingData() {
     // same tag
     //  we have to set logic for setting up the senind of id tag
     Serial.println("yes inside the authentication");
-
   }
 
-  //prepare the key - all keys are set to FFFFFFFFFFFFh
-  for (byte i = 0; i < 6; i++) key.keyByte[i] = 0xFF;
+  // prepare the key - all keys are set to FFFFFFFFFFFFh
+  for (byte i = 0; i < 6; i++)
+    key.keyByte[i] = 0xFF;
 
-  //buffer for read data
-  byte buffer[SIZE_BUFFER] = { 0 };
+  // buffer for read data
+  byte buffer[SIZE_BUFFER] = {0};
 
-  //the block to operate
+  // the block to operate
   byte block = 1;
-  byte size = SIZE_BUFFER;                                                                          //authenticates the block to operate
-  status = mfrc522.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A, blockNum, &key, &(mfrc522.uid));  //line 834 of MFRC522.cpp file
-  if (status != MFRC522::STATUS_OK) {
+  byte size = SIZE_BUFFER;                                                                            // authenticates the block to operate
+  status = mfrc522.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A, blockNum, &key, &(mfrc522.uid)); // line 834 of MFRC522.cpp file
+  if (status != MFRC522::STATUS_OK)
+  {
     Serial.print(F("Authentication failed: "));
     Serial.println(mfrc522.GetStatusCodeName(status));
     return false;
   }
 
-  //read data from block
+  // read data from block
   status = mfrc522.MIFARE_Read(blockNum, buffer, &size);
-  if (status != MFRC522::STATUS_OK) {
+  if (status != MFRC522::STATUS_OK)
+  {
     Serial.print(F("Reading failed: "));
     Serial.println(mfrc522.GetStatusCodeName(status));
     return false;
@@ -652,7 +698,8 @@ bool readingData() {
   Serial.print(block);
   Serial.print(F("]: "));
 
-  for (uint8_t i = 0; i < MAX_SIZE_BLOCK; i++) {
+  for (uint8_t i = 0; i < MAX_SIZE_BLOCK; i++)
+  {
     Serial.write(buffer[i]);
   }
 
@@ -660,32 +707,33 @@ bool readingData() {
 
   Serial.println();
   return true;
-  //printHex(buffer,SIZE_BUFFER);
+  // printHex(buffer,SIZE_BUFFER);
 }
 
+bool writingData(String write_data)
+{
 
-bool writingData(String write_data) {
-
-   Serial.println("1");
-  if (!mfrc522.PICC_IsNewCardPresent()) {
+  Serial.println("1");
+  if (!mfrc522.PICC_IsNewCardPresent())
+  {
     return false;
   }
   // Select a card
   Serial.println("2");
-  if (!mfrc522.PICC_ReadCardSerial()) {
+  if (!mfrc522.PICC_ReadCardSerial())
+  {
     return false;
   }
 
-
-  //prints thecnical details from of the card/tag
+  // prints thecnical details from of the card/tag
   Serial.println("3");
   mfrc522.PICC_DumpDetailsToSerial(&(mfrc522.uid));
 
- 
-  for (byte i = 0; i < 6; i++) key.keyByte[i] = 0xFF;
+  for (byte i = 0; i < 6; i++)
+    key.keyByte[i] = 0xFF;
 
   // String dataToWrite = "Hello, RFID!";  // Example string to write
-  byte data[MAX_SIZE_BLOCK];  // Array to hold 16 bytes of data
+  byte data[MAX_SIZE_BLOCK]; // Array to hold 16 bytes of data
 
   memset(data, 0, sizeof(data)); // Clear the data array
   memcpy(data, write_data.c_str(), min(write_data.length(), sizeof(data)));
@@ -693,25 +741,28 @@ bool writingData(String write_data) {
   status = mfrc522.PCD_Authenticate(MFRC522::PICC_CMD_MF_AUTH_KEY_A,
                                     blockNum, &key, &(mfrc522.uid));
 
-  if (status != MFRC522::STATUS_OK) {
+  if (status != MFRC522::STATUS_OK)
+  {
     Serial.print(F("PCD_Authenticate() failed: "));
     Serial.println(mfrc522.GetStatusCodeName(status));
-    
+
     return false;
   }
-  //else Serial.println(F("PCD_Authenticate() success: "));
+  // else Serial.println(F("PCD_Authenticate() success: "));
 
-  //Writes in the block
+  // Writes in the block
   status = mfrc522.MIFARE_Write(blockNum, data, MAX_SIZE_BLOCK);
-  if (status != MFRC522::STATUS_OK) {
+  if (status != MFRC522::STATUS_OK)
+  {
     Serial.print(F("MIFARE_Write() failed: "));
     Serial.println(mfrc522.GetStatusCodeName(status));
     return false;
-  } else {
+  }
+  else
+  {
     Serial.println(F("MIFARE_Write() success: "));
     return true;
   }
-
 }
 
 // void launchWeb()
@@ -777,7 +828,6 @@ bool writingData(String write_data) {
 //   launchWeb();
 //   Serial.println("over");
 // }
-
 
 // void createWebServer()
 // {
