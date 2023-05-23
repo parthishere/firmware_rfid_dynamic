@@ -208,11 +208,12 @@ void post_data(String D0, String data, String uid)
 
   WiFiClientSecure client;
   client.setInsecure();
+  Serial.println("1");
   if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
   {
-
-    String data = "D0=" + String(D0) + "&data=" + data + "&uid=" + uid;
-
+    Serial.println("2");
+    String data = "D0=" + String(D0) + "&data=" + data + "&uid=" + String(uid);
+    Serial.println(data);
     client.println("POST /api/rfid/" + uqid + "/" + username + "/read-esp-scanned HTTP/1.1");
     client.println("Host: fleetkaptan.up.railway.app");
     client.println("User-Agent: ESP32");
@@ -464,13 +465,9 @@ void loop()
 
       {
         rfidData rfid = readingData();
-        Serial.println("threee lines");
-        Serial.println(rfid.uid);
-        Serial.println(rfid.data);
-        Serial.println(strcmp((const char *)rfid.uid.c_str(), "") != 0);
         if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
         {
-          post_data("0", rfid.uid, rfid.data);
+          post_data("0", rfid.data, rfid.uid);
         }
       }
 
@@ -499,10 +496,7 @@ void loop()
   digitalWrite(BLUE, 0);
   {
     rfidData rfid = readingData();
-    Serial.println("threee lines");
-    Serial.println(rfid.uid);
-    Serial.println(rfid.data);
-    Serial.println(strcmp((const char *)rfid.uid.c_str(), "") != 0);
+    
     if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
     {
       Serial.println("card readed");
@@ -516,7 +510,7 @@ void loop()
      
       
       Serial.println("will post");
-      post_data("0", rfid.uid, rfid.data);
+      post_data("0", rfid.data, rfid.uid);
     }
   }
 }
