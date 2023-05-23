@@ -6,6 +6,7 @@
 #include <base64.h>
 #include <EEPROM.h>
 #include <WiFiClientSecure.h>
+#include <WebServer.h>
 
 #define SDA_SS_PIN 5 // 21 //ESP Interface Pin
 #define RST_PIN 15   // 22    //ESP Interface Pin
@@ -17,7 +18,7 @@
 #define YELLOW 12 // error card not detected
 #define WHITE 13  // write sucsess full
 #define RED 21    // wifi
-#define RED2 25  // server error
+#define RED2 25   // server error
 
 #define MODE_SW1 32
 #define MODE_SW2 35
@@ -29,7 +30,14 @@
 MFRC522 mfrc522(SDA_SS_PIN, RST_PIN); // create instance of class
 MFRC522::MIFARE_Key key;
 MFRC522::StatusCode status;
-// WebServer server(80);
+
+struct rfidData
+{
+  String uid;
+  String data;
+};
+rfidData rfidStruct;
+WebServer server(80);
 
 /* Set the block to which we want to write data */
 /* Be aware of Sector Trailer Blocks */
@@ -62,11 +70,15 @@ const char *AuthenticatedTag = "E3E7719B";
 static int id;
 
 // Function Decalration
+
 bool checkWifi_connection(String username, String password, String uqid);
 void send_data_to_bt_and_setup_sta(void);
 String readUid();
-bool readingData();
+rfidData readingData();
 bool writingData(String write_data);
+void launchWeb(void);
+void setupAP(void);
+void createWebServer();
 
 BluetoothSerial btSerial;
 
@@ -85,10 +97,9 @@ void get_data()
   WiFiClientSecure client;
   client.setInsecure();
 
-  // Serial.println("[HTTP] begin...\n");
   if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
   {
-    
+
     client.println("GET /api/rfid/" + uqid + "/" + username + "/write-to-rfid/ HTTP/1.1");
     client.println("Host: fleetkaptan.up.railway.app");
     client.println("User-Agent: ESP32");
@@ -132,9 +143,9 @@ void get_data()
 
     storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
 
-    if (id != storedId && strcmp(uqid.c_str(),unique_id_recived_from_server) == 0)
+    if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0)
     {
-      
+
       digitalWrite(BLUE2, HIGH);
       Serial.println("changes");
       EEPROM.write(ID_EEPROM_ADDRESS, id);
@@ -164,17 +175,15 @@ void get_data()
       delay(100);
       digitalWrite(WHITE, LOW);
       delay(100);
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
 
       digitalWrite(BLUE2, LOW);
       mfrc522.PICC_HaltA();
-      // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
       mfrc522.PCD_StopCrypto1();
-      // WriteDataToBlock(blockNum, data);
 
-      // write to rfid
     }
-    
-
   }
 
   else
@@ -182,8 +191,6 @@ void get_data()
     Serial.println(F("Connection wasnt established"));
     digitalWrite(RED2, HIGH);
   }
-
-  
 
   btSerial.begin(9600);
 }
@@ -201,78 +208,75 @@ void post_data(String D0, String data, String uid)
 
   WiFiClientSecure client;
   client.setInsecure();
-  if (WiFi.status() == WL_CONNECTED)
+  if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
   {
 
     String data = "D0=" + String(D0) + "&data=" + data + "&uid=" + uid;
 
-    if (client.connect("fleetkaptan.up.railway.app", 443))
+    client.println("POST /api/rfid/" + uqid + "/" + username + "/read-esp-scanned HTTP/1.1");
+    client.println("Host: fleetkaptan.up.railway.app");
+    client.println("User-Agent: ESP32");
+    client.println("Authorization: " + auth);
+    client.println("Content-Type: application/x-www-form-urlencoded;");
+    client.println("Content-Length: " + String(data.length()));
+    client.println();
+    client.println(data);
+    Serial.println(F("Data were sent successfully"));
+    while (client.connected())
     {
-      client.println("POST /api/rfid/" + uqid + "/" + username + "/read-esp-scanned HTTP/1.1");
-      client.println("Host: fleetkaptan.up.railway.app");
-      client.println("User-Agent: ESP32");
-      client.println("Authorization: " + auth);
-      client.println("Content-Type: application/x-www-form-urlencoded;");
-      client.println("Content-Length: " + String(data.length()));
-      client.println();
-      client.println(data);
-      Serial.println(F("Data were sent successfully"));
-      while (client.connected())
+      String line = client.readStringUntil('\n');
+      if (line == "\r")
       {
-        String line = client.readStringUntil('\n');
-        if (line == "\r")
-        {
-          Serial.println("headers received");
-          break;
-        }
-      }
-
-      String response;
-      if (client.available())
-      {
-        response = client.readString();
-      }
-      response.trim();
-      // Serial.println(response);
-      client.stop();
-
-      error = deserializeJson(jsonDocument, response);
-
-      if (error)
-      {
-        Serial.print("Deserialization error: ");
-        Serial.println(error.c_str());
-        return;
-      }
-
-      // Access the JSON data
-      if (jsonDocument.containsKey("id") && !jsonDocument["id"].isNull())
-      {
-
-        int id = jsonDocument["id"];
-        const char *uniqueId = jsonDocument["esp"]["unique_id"];
-        const char *value = jsonDocument["value"];
-        Serial.print("ID: ");
-        Serial.println(id);
-        Serial.print("Unique ID: ");
-        Serial.println(uniqueId);
-        // Serial.print("Timestamp: ");
-        // Serial.println(timestamp);
-        Serial.print("Value: ");
-        Serial.println(value);
-      }
-      else
-      {
-        Serial.println("ID not found or null");
+        Serial.println("headers received");
+        break;
       }
     }
 
+    String response;
+    if (client.available())
+    {
+      response = client.readString();
+    }
+    response.trim();
+    Serial.println(response);
+    client.stop();
+
+    error = deserializeJson(jsonDocument, response);
+
+    if (error)
+    {
+      Serial.print("Deserialization error: ");
+      Serial.println(error.c_str());
+      return;
+    }
+
+    digitalWrite(RED2, LOW);
+    // Access the JSON data
+    if (jsonDocument.containsKey("id") && !jsonDocument["id"].isNull())
+    {
+
+      int id = jsonDocument["id"];
+      const char *uniqueId = jsonDocument["esp"]["unique_id"];
+      const char *value = jsonDocument["value"];
+      Serial.print("ID: ");
+      Serial.println(id);
+      Serial.print("Unique ID: ");
+      Serial.println(uniqueId);
+      Serial.print("Value: ");
+      Serial.println(value);
+    }
     else
     {
-      Serial.println(F("Connection wasnt established"));
+      Serial.println("ID not found or null");
     }
+
     Serial.println("we got the responnse");
     client.stop();
+  }
+  else
+  {
+    Serial.println(F("Connection wasnt established"));
+    digitalWrite(RED2, HIGH);
   }
   btSerial.begin(9600);
 }
@@ -388,7 +392,7 @@ void setup()
   }
   else
   {
-    while (WiFi.status() != WL_CONNECTED)
+    while (WiFi.status() != WL_CONNECTED && digitalRead(bluetooth_switch) == LOW)
     {
       digitalWrite(RED, 1);
       // Setup Bluetooth
@@ -400,17 +404,23 @@ void setup()
         Serial.println("Turning the Bluetooth On");
         send_data_to_bt_and_setup_sta();
       }
-      else
-      {
-        digitalWrite(BLUE, 0);
-        //  Serial.println("Connection Status Negative");
-        // Serial.println("Turning the HotSpot On");
-        // // launchWeb();
-        // setupAP(); // Setup HotSpot
-        Serial.println("Do nothing");
-      }
+      
     }
+  
     
+    digitalWrite(BLUE, 0);
+    Serial.println("Connection Status Negative");
+    Serial.println("Turning the HotSpot On");
+    launchWeb();
+    setupAP(); // Setup HotSpot
+    Serial.println("Do nothing");
+    
+    while ((WiFi.status() != WL_CONNECTED))
+    {
+      delay(10);
+      server.handleClient();
+    }
+
   }
 
   Serial.println();
@@ -447,49 +457,68 @@ void loop()
         card_written = writingData(dataToWrite);
         delay(1000);
       }
-      digitalWrite(YELLOW, LOW);
-      digitalWrite(WHITE, HIGH);
-      delay(200);
-      digitalWrite(WHITE, LOW);
-      delay(200);
-      digitalWrite(WHITE, HIGH);
-      delay(200);
-      digitalWrite(WHITE, LOW);
-      delay(200);
-      digitalWrite(WHITE, HIGH);
-      delay(200);
-      digitalWrite(WHITE, LOW);
-      delay(200);
 
       mfrc522.PICC_HaltA();
       // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
       mfrc522.PCD_StopCrypto1();
+
+      {
+        rfidData rfid = readingData();
+        Serial.println("threee lines");
+        Serial.println(rfid.uid);
+        Serial.println(rfid.data);
+        Serial.println(strcmp((const char *)rfid.uid.c_str(), "") != 0);
+        if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
+        {
+          post_data("0", rfid.uid, rfid.data);
+        }
+      }
+
+      digitalWrite(YELLOW, LOW);
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+      delay(100);
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+      delay(100);
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+      delay(100);
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+
       digitalWrite(BLUE, LOW);
       break;
       // write rifd
     }
   }
   digitalWrite(BLUE, 0);
-  bool card_readed = readingData();
-  if (card_readed)
   {
-    Serial.println("card readed");
-    digitalWrite(WHITE, HIGH);
-    delay(500);
-    digitalWrite(WHITE, LOW);
-    delay(500);
-    digitalWrite(WHITE, HIGH);
-    delay(500);
-    digitalWrite(WHITE, LOW);
-    delay(500);
-    digitalWrite(WHITE, HIGH);
-    delay(500);
-    digitalWrite(WHITE, LOW);
-    delay(500);
+    rfidData rfid = readingData();
+    Serial.println("threee lines");
+    Serial.println(rfid.uid);
+    Serial.println(rfid.data);
+    Serial.println(strcmp((const char *)rfid.uid.c_str(), "") != 0);
+    if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
+    {
+      Serial.println("card readed");
+      digitalWrite(WHITE, HIGH);
+      delay(1000);
+      digitalWrite(WHITE, LOW);
+      delay(500);
+      digitalWrite(WHITE, HIGH);
+      delay(1000);
+      digitalWrite(WHITE, LOW);
+     
+      
+      Serial.println("will post");
+      post_data("0", rfid.uid, rfid.data);
+    }
   }
-  mfrc522.PICC_HaltA();
-  // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
-  mfrc522.PCD_StopCrypto1();
 }
 
 bool checkWifi_connection(String username, String password, String uqid)
@@ -633,19 +662,29 @@ String readUid()
   char *idTag = new char[content.length() + 1];
   strcpy(idTag, content.c_str());
 
-  return idTag;
+  mfrc522.PICC_HaltA();
+  mfrc522.PCD_StopCrypto1();
+
+  return String(idTag);
 }
 // reads data from card/tag
-bool readingData()
+
+rfidData readingData()
 {
   if (!mfrc522.PICC_IsNewCardPresent())
   {
-    return false;
+    rfidStruct.uid = "";
+    rfidStruct.data = "";
+
+    return rfidStruct;
   }
   // Select a card
   if (!mfrc522.PICC_ReadCardSerial())
   {
-    return false;
+    rfidStruct.uid = "";
+    rfidStruct.data = "";
+
+    return rfidStruct;
   }
   // prints the technical details of the card/tag
   mfrc522.PICC_DumpDetailsToSerial(&(mfrc522.uid));
@@ -664,12 +703,6 @@ bool readingData()
   strcpy(idTag, content.c_str());
 
   delay(100);
-  if (strcmp(idTag, AuthenticatedTag) == 0)
-  {
-    // same tag
-    //  we have to set logic for setting up the senind of id tag
-    Serial.println("yes inside the authentication");
-  }
 
   // prepare the key - all keys are set to FFFFFFFFFFFFh
   for (byte i = 0; i < 6; i++)
@@ -686,7 +719,10 @@ bool readingData()
   {
     Serial.print(F("Authentication failed: "));
     Serial.println(mfrc522.GetStatusCodeName(status));
-    return false;
+    rfidStruct.uid = "";
+    rfidStruct.data = "";
+
+    return rfidStruct;
   }
 
   // read data from block
@@ -695,7 +731,10 @@ bool readingData()
   {
     Serial.print(F("Reading failed: "));
     Serial.println(mfrc522.GetStatusCodeName(status));
-    return false;
+    rfidStruct.uid = "";
+    rfidStruct.data = "";
+
+    return rfidStruct;
   }
 
   Serial.print(F("\nData from block ["));
@@ -709,9 +748,18 @@ bool readingData()
 
   Serial.println(" ");
 
-  Serial.println();
-  return true;
-  // printHex(buffer,SIZE_BUFFER);
+  mfrc522.PICC_HaltA();
+  // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
+  mfrc522.PCD_StopCrypto1();
+
+  String dataString((char *)buffer);
+  // Serial.println("two lines");
+  // Serial.println(String(idTag));
+  // Serial.println(dataString);
+  rfidStruct.uid = String(idTag);
+  rfidStruct.data = dataString;
+  content.clear();
+  return rfidStruct;
 }
 
 bool writingData(String write_data)
@@ -756,6 +804,11 @@ bool writingData(String write_data)
 
   // Writes in the block
   status = mfrc522.MIFARE_Write(blockNum, data, MAX_SIZE_BLOCK);
+
+  mfrc522.PICC_HaltA();
+  // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
+  mfrc522.PCD_StopCrypto1();
+
   if (status != MFRC522::STATUS_OK)
   {
     Serial.print(F("MIFARE_Write() failed: "));
@@ -769,129 +822,153 @@ bool writingData(String write_data)
   }
 }
 
-// void launchWeb()
-// {
-//   Serial.println("");
-//   if (WiFi.status() == WL_CONNECTED)
-//     Serial.println("WiFi connected");
-//   Serial.println("Local IP: ");
-//   Serial.println(WiFi.localIP());
-//   Serial.println("SoftAP IP: ");
-//   Serial.println(WiFi.softAPIP());
+void launchWeb()
+{
+  Serial.println("");
+  if (WiFi.status() == WL_CONNECTED)
+    Serial.println("WiFi connected");
+  Serial.println("Local IP: ");
+  Serial.println(WiFi.localIP());
+  Serial.println("SoftAP IP: ");
+  Serial.println(WiFi.softAPIP());
 
-//   delay(1000);
-//   createWebServer();
-//   // Start the server
-//   server.begin();
-//   Serial.println("Server started");
-// }
+  delay(1000);
+  createWebServer();
+  // Start the server
+  ///////////////////
+  server.begin();//
+  ///////////////////
+  Serial.println("Server started");
+}
 
-// void setupAP(void)
-// {
-//   WiFi.mode(WIFI_STA);
-//   WiFi.disconnect();
-//   delay(100);
-//   int n = WiFi.scanNetworks();
-//   Serial.println("scan done");
-//   if (n == 0)
-//     Serial.println("no networks found");
-//   else
-//   {
-//     Serial.println(n);
-//     Serial.println(" networks found");
-//     for (int i = 0; i < n; ++i)
-//     {
-//       // Print SSID and RSSI for each network found
-//       Serial.println(i + 1);
-//       Serial.println(": ");
-//       Serial.println(WiFi.SSID(i));
-//       Serial.println(" (");
-//       Serial.println(WiFi.RSSI(i));
-//       Serial.println(")");
-//       // Serial.println((WiFi.encryptionType(i) == ENC_TYPE_NONE) ? " " : "*");
-//       delay(10);
-//     }
-//   }
-//   Serial.println("");
-//   st = "<ol>";
-//   for (int i = 0; i < n; ++i)
-//   {
-//     // Print SSID and RSSI for each network found
-//     st += "<li>";
-//     st += WiFi.SSID(i);
-//     st += " (";
-//     st += WiFi.RSSI(i);
-//     st += ")";
-//     // st += (WiFi.encryptionType(i) == ENC_TYPE_NONE) ? " " : "*";
-//     st += "</li>";
-//   }
-//   st += "</ol>";
-//   delay(100);
-//   WiFi.softAP("GridenPower", "");
-//   Serial.println("Initializing_softap_for_wifi credentials_modification");
-//   launchWeb();
-//   Serial.println("over");
-// }
+void setupAP(void)
+{
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+  delay(100);
+  int n = WiFi.scanNetworks();
+  Serial.println("scan done");
+  if (n == 0)
+    Serial.println("no networks found");
+  else
+  {
+    Serial.println(n);
+    Serial.println(" networks found");
+    for (int i = 0; i < n; ++i)
+    {
+      // Print SSID and RSSI for each network found
+      Serial.println(i + 1);
+      Serial.println(": ");
+      Serial.println(WiFi.SSID(i));
+      Serial.println(" (");
+      Serial.println(WiFi.RSSI(i));
+      Serial.println(")");
+      // Serial.println((WiFi.encryptionType(i) == ENC_TYPE_NONE) ? " " : "*");
+      delay(10);
+    }
+  }
+  Serial.println("");
+  st = "<ol>";
+  for (int i = 0; i < n; ++i)
+  {
+    // Print SSID and RSSI for each network found
+    st += "<li>";
+    st += WiFi.SSID(i);
+    st += " (";
+    st += WiFi.RSSI(i);
+    st += ")";
+    // st += (WiFi.encryptionType(i) == ENC_TYPE_NONE) ? " " : "*";
+    st += "</li>";
+  }
+  st += "</ol>";
+  delay(100);
+  WiFi.softAP("GridenPower", "");
+  Serial.println("Initializing_softap_for_wifi credentials_modification");
+  launchWeb();
+  Serial.println("over");
+}
 
-// void createWebServer()
-// {
-//   {
-//     server.on("/", []()
-//               {
-//       IPAddress ip = WiFi.softAPIP();
-//       String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
-//       content = "<!DOCTYPE HTML>\r\n<html>Welcome to Wifi Credentials Update page";
-//       content += "<form action=\"/scan\" method=\"POST\"><input type=\"submit\" value=\"scan\"></form>";
-//       content += ipStr;
-//       content += "<p>";
-//       content += st;
-//       content += "</p><form method='get' action='setting'><label>SSID: </label><input name='ssid' length=32><input name='pass' length=64><input type='submit'></form>";
-//       content += "</html>";
-//       server.send(200, "text/html", content); });
-//     server.on("/scan", []()
-//               {
-//       //setupAP();
-//       IPAddress ip = WiFi.softAPIP();
-//       String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
-//       content = "<!DOCTYPE HTML>\r\n<html>go back";
-//       server.send(200, "text/html", content); });
-//     server.on("/setting", []()
-//               {
-//       String qsid = server.arg("ssid");
-//       String qpass = server.arg("pass");
-//       if (qsid.length() > 0 && qpass.length() > 0) {
-//         Serial.println("clearing eeprom");
-//         for (int i = 0; i < 96; ++i) {
-//           EEPROM.write(i, 0);
-//         }
-//         Serial.println(qsid);
-//         Serial.println("");
-//         Serial.println(qpass);
-//         Serial.println("");
-//         Serial.println("writing eeprom ssid:");
-//         for (int i = 0; i < qsid.length(); ++i)
-//         {
-//           EEPROM.write(i, qsid[i]);
-//           Serial.println("Wrote: ");
-//           Serial.println(qsid[i]);
-//         }
-//         Serial.println("writing eeprom pass:");
-//         for (int i = 0; i < qpass.length(); ++i)
-//         {
-//           EEPROM.write(32 + i, qpass[i]);
-//           Serial.println("Wrote: ");
-//           Serial.println(qpass[i]);
-//         }
-//         EEPROM.commit();
-//         content = "{\"Success\":\"saved to eeprom... reset to boot into new wifi\"}";
-//         statusCode = 200;
-//         ESP.restart();
-//       } else {
-//         content = "{\"Error\":\"404 not found\"}";
-//         statusCode = 404;
-//         Serial.println("Sending 404");
-//       }
-//       server.sendHeader("Access-Control-Allow-Origin", "*");
-//       server.send(statusCode, "application/json", content); });
-//   }
-// }
+void createWebServer()
+{
+  {
+    server.on("/", []()
+              {
+      IPAddress ip = WiFi.softAPIP();
+      String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
+      content = "<!DOCTYPE HTML>\r\n<html>Welcome to Wifi Credentials Update page";
+      content += "<form action=\"/scan\" method=\"POST\"><input type=\"submit\" value=\"scan\"></form>";
+      content += ipStr;
+      content += "<p>";
+      content += st;
+      content += "</p><form method='get' action='setting'><label>SSID: </label><input name='ssid' length=32><input name='pass' length=64><label>UQID: </label><input name='uqid' length=64><label>Website Username: </label><input name='wusername' length=64><label>Password: </label><input name='wpass' length=64><input type='submit'></form>";
+      content += "</html>";
+      server.send(200, "text/html", content); });
+    server.on("/scan", []()
+              {
+      //setupAP();
+      IPAddress ip = WiFi.softAPIP();
+      String ipStr = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' + String(ip[3]);
+      content = "<!DOCTYPE HTML>\r\n<html>go back";
+      server.send(200, "text/html", content); });
+    server.on("/setting", []()
+              {
+      String qsid = server.arg("ssid");
+      String qpass = server.arg("pass");
+      String uqid = server.arg("uqid");
+      String wusername = server.arg("wusername");
+      String wpass = server.arg("wpass");
+
+      if (qsid.length() > 0 && qpass.length() > 0) {
+        Serial.println("clearing eeprom");
+        for (int i = 0; i < 96; ++i) {
+          EEPROM.write(i, 0);
+        }
+        Serial.println(qsid);
+        Serial.println("");
+        Serial.println(qpass);
+        Serial.println("");
+        Serial.println("writing eeprom ssid:");
+        for (int i = 0; i < qsid.length(); ++i)
+        {
+          EEPROM.write(i, qsid[i]);
+          Serial.println("Wrote: ");
+          Serial.println(qsid[i]);
+        }
+        Serial.println("writing eeprom pass:");
+        for (int i = 0; i < qpass.length(); ++i)
+        {
+          EEPROM.write(32 + i, qpass[i]);
+          Serial.println("Wrote: ");
+          Serial.println(qpass[i]);
+        }
+        for (int i = 0; i < uqid.length(); ++i)
+        {
+          EEPROM.write(196 + i, uqid[i]);
+          Serial.print("Wrote: ");
+          Serial.println(uqid[i]);
+        }
+        for (int i = 0; i < wusername.length(); ++i)
+        {
+          EEPROM.write(96 + i, wusername[i]);
+          Serial.print("Wrote: ");
+          Serial.println(wusername[i]);
+        }
+        for (int i = 0; i < wpass.length(); ++i)
+        {
+          EEPROM.write(128 + i, wpass[i]);
+          Serial.print("Wrote: ");
+          Serial.println(wpass[i]);
+        }
+        EEPROM.commit();
+        content = "{\"Success\":\"saved to eeprom... reset to boot into new wifi\"}";
+        statusCode = 200;
+        ESP.restart();
+      } else {
+        content = "{\"Error\":\"404 not found\"}";
+        statusCode = 404;
+        Serial.println("Sending 404");
+      }
+      server.sendHeader("Access-Control-Allow-Origin", "*");
+      server.send(statusCode, "application/json", content); });
+  }
+}
