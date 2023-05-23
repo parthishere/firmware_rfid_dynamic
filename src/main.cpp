@@ -882,7 +882,7 @@ void setupAP(void)
   }
   st += "</ol>";
   delay(100);
-  WiFi.softAP("GridenPower", "");
+  WiFi.softAP("FleetKaptan", "");
   Serial.println("Initializing_softap_for_wifi credentials_modification");
   launchWeb();
   Serial.println("over");
