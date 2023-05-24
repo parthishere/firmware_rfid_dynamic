@@ -212,16 +212,21 @@ void post_data(String D0, String data, String uid)
   if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
   {
     Serial.println("2");
-    String data = "D0=" + String(D0) + "&data=" + data + "&uid=" + String(uid);
+    Serial.println(D0);
     Serial.println(data);
+    Serial.println(uid);
+    Serial.println("data");
+    String this_will_be_sent_to_server_hehe = "D0=" + String(D0) + "&data=" + String(data) + "&uid=" + String(uid);
+
+    Serial.println(this_will_be_sent_to_server_hehe);
     client.println("POST /api/rfid/" + uqid + "/" + username + "/read-esp-scanned HTTP/1.1");
     client.println("Host: fleetkaptan.up.railway.app");
     client.println("User-Agent: ESP32");
     client.println("Authorization: " + auth);
     client.println("Content-Type: application/x-www-form-urlencoded;");
-    client.println("Content-Length: " + String(data.length()));
+    client.println("Content-Length: " + String(this_will_be_sent_to_server_hehe.length()));
     client.println();
-    client.println(data);
+    client.println(this_will_be_sent_to_server_hehe);
     Serial.println(F("Data were sent successfully"));
     while (client.connected())
     {
