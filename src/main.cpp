@@ -75,7 +75,7 @@ bool checkWifi_connection(String username, String password, String uqid);
 void send_data_to_bt_and_setup_sta(void);
 String readUid();
 rfidData readingData();
-bool writingData(String write_data);
+rfidData writingData(String write_data);
 void launchWeb(void);
 void setupAP(void);
 void createWebServer();
@@ -138,12 +138,13 @@ void get_data()
     int id = jsonDocument["id"];
     const char *unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
     const char *value_recived_from_server = jsonDocument["value"];
-
+    bool sent_from_server = jsonDocument["sent_from_server"];
+    Serial.println(sent_from_server);
     int storedId;
 
     storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
 
-    if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0)
+    if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0 && sent_from_server)
     {
 
       digitalWrite(BLUE2, HIGH);
@@ -153,13 +154,15 @@ void get_data()
       Serial.println(value_recived_from_server);
       String val_to_write = String(value_recived_from_server);
       val_to_write = val_to_write.substring(0, 16);
-      bool card_written = writingData(val_to_write);
-
-      while (!card_written)
       {
-        digitalWrite(YELLOW, HIGH);
-        card_written = writingData(val_to_write);
-        delay(1000);
+        rfidData rfid = writingData(val_to_write);
+
+        while (strcmp(rfid.uid.c_str(), "") == 0)
+        {
+          digitalWrite(YELLOW, HIGH);
+          rfid = writingData(val_to_write);
+          delay(1000);
+        }
       }
       digitalWrite(YELLOW, LOW);
 
@@ -208,17 +211,12 @@ void post_data(String D0, String data, String uid)
 
   WiFiClientSecure client;
   client.setInsecure();
-  Serial.println("1");
+  
   if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
   {
-    Serial.println("2");
-    Serial.println(D0);
-    Serial.println(data);
-    Serial.println(uid);
-    Serial.println("data");
+ 
     String this_will_be_sent_to_server_hehe = "D0=" + String(D0) + "&data=" + String(data) + "&uid=" + String(uid);
 
-    Serial.println(this_will_be_sent_to_server_hehe);
     client.println("POST /api/rfid/" + uqid + "/" + username + "/read-esp-scanned HTTP/1.1");
     client.println("Host: fleetkaptan.up.railway.app");
     client.println("User-Agent: ESP32");
@@ -227,7 +225,7 @@ void post_data(String D0, String data, String uid)
     client.println("Content-Length: " + String(this_will_be_sent_to_server_hehe.length()));
     client.println();
     client.println(this_will_be_sent_to_server_hehe);
-    Serial.println(F("Data were sent successfully"));
+
     while (client.connected())
     {
       String line = client.readStringUntil('\n');
@@ -264,19 +262,12 @@ void post_data(String D0, String data, String uid)
       int id = jsonDocument["id"];
       const char *uniqueId = jsonDocument["esp"]["unique_id"];
       const char *value = jsonDocument["value"];
-      Serial.print("ID: ");
-      Serial.println(id);
-      Serial.print("Unique ID: ");
-      Serial.println(uniqueId);
-      Serial.print("Value: ");
-      Serial.println(value);
     }
     else
     {
       Serial.println("ID not found or null");
     }
 
-    Serial.println("we got the responnse");
     client.stop();
   }
   else
@@ -456,26 +447,24 @@ void loop()
 
       String dataToWrite = ssid_pass; // Example string to write
       dataToWrite = dataToWrite.substring(0, 16);
-      bool a = readUid();
-      bool card_written = writingData(dataToWrite);
-      while (!card_written)
       {
-        digitalWrite(YELLOW, HIGH);
-        card_written = writingData(dataToWrite);
-        delay(1000);
-      }
-
-      mfrc522.PICC_HaltA();
-      // "stop" the encryption of the PCD, it must be called after communication with authentication, otherwise new communications can not be initiated
-      mfrc522.PCD_StopCrypto1();
-
-      {
-        rfidData rfid = readingData();
-        if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
+        rfidData rfid = writingData(dataToWrite);
+        while (strcmp(rfid.uid.c_str(), "") == 0)
         {
+          digitalWrite(YELLOW, HIGH);
+          rfid = writingData(dataToWrite);
+          delay(1000);
+        }
+        Serial.println(rfid.uid);
+      
+        if (strcmp(rfid.uid.c_str(), "") != 0)
+        {
+          Serial.println(rfid.uid);
           post_data("0", rfid.data, rfid.uid);
         }
       }
+      
+      
 
       digitalWrite(YELLOW, LOW);
       digitalWrite(WHITE, HIGH);
@@ -762,24 +751,44 @@ rfidData readingData()
   return rfidStruct;
 }
 
-bool writingData(String write_data)
+rfidData writingData(String write_data)
 {
 
   Serial.println("1");
   if (!mfrc522.PICC_IsNewCardPresent())
   {
-    return false;
+    rfidStruct.uid = "";
+    rfidStruct.data = "";
+
+    return rfidStruct;
   }
   // Select a card
   Serial.println("2");
   if (!mfrc522.PICC_ReadCardSerial())
   {
-    return false;
+    rfidStruct.uid = "";
+    rfidStruct.data = "";
+
+    return rfidStruct;
   }
 
   // prints thecnical details from of the card/tag
   Serial.println("3");
   mfrc522.PICC_DumpDetailsToSerial(&(mfrc522.uid));
+
+  for (byte i = 0; i < mfrc522.uid.size; i++)
+  {
+    // debug(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : "");
+    // debug(mfrc522.uid.uidByte[i], HEX);
+    content.concat(String(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : ""));
+    content.concat(String(mfrc522.uid.uidByte[i], HEX));
+  }
+
+  Serial.println("");
+  content.toUpperCase();
+  char *idTag = new char[content.length() + 1];
+  strcpy(idTag, content.c_str());
+
 
   for (byte i = 0; i < 6; i++)
     key.keyByte[i] = 0xFF;
@@ -798,7 +807,10 @@ bool writingData(String write_data)
     Serial.print(F("PCD_Authenticate() failed: "));
     Serial.println(mfrc522.GetStatusCodeName(status));
 
-    return false;
+    rfidStruct.uid = "";
+    rfidStruct.data = "";
+
+    return rfidStruct;
   }
   // else Serial.println(F("PCD_Authenticate() success: "));
 
@@ -813,12 +825,18 @@ bool writingData(String write_data)
   {
     Serial.print(F("MIFARE_Write() failed: "));
     Serial.println(mfrc522.GetStatusCodeName(status));
-    return false;
+    rfidStruct.uid = "";
+    rfidStruct.data = "";
+
+    return rfidStruct;
   }
   else
   {
     Serial.println(F("MIFARE_Write() success: "));
-    return true;
+    rfidStruct.uid = idTag;
+    rfidStruct.data = write_data;
+
+    return rfidStruct;
   }
 }
 
