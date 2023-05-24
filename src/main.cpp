@@ -393,9 +393,10 @@ void setup()
   }
   else
   {
+    digitalWrite(RED, 1);
     while (WiFi.status() != WL_CONNECTED && digitalRead(bluetooth_switch) == LOW)
     {
-      digitalWrite(RED, 1);
+      
       // Setup Bluetooth
       Serial.print("State of switch");
       Serial.print(digitalRead(bluetooth_switch));
