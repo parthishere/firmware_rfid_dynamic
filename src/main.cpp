@@ -82,6 +82,9 @@ void createWebServer();
 
 BluetoothSerial btSerial;
 
+
+
+
 void get_data()
 {
 
@@ -278,6 +281,20 @@ void post_data(String D0, String data, String uid)
   btSerial.begin(9600);
 }
 
+
+
+void secondCoreTask(void* parameter) {
+  while (true) {
+
+    get_data();
+  
+    delay(2000); // Adjust the delay as per your requirements
+  }
+}
+
+
+
+
 void setup()
 {
 
@@ -423,6 +440,17 @@ void setup()
 
   Serial.println();
   Serial.println("Waiting...");
+
+  xTaskCreatePinnedToCore(
+    secondCoreTask,    // Function to run on the second core
+    "SecondCoreTask",  // Name of the task
+    10000,             // Stack size (in bytes)
+    NULL,              // Task parameter
+    1,                 // Task priority
+    NULL,              // Task handle
+    1                  // Core to run the task on (1 or 0)
+  );
+  
 }
 
 void loop()
