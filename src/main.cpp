@@ -30,6 +30,7 @@
 MFRC522 mfrc522(SDA_SS_PIN, RST_PIN); // create instance of class
 MFRC522::MIFARE_Key key;
 MFRC522::StatusCode status;
+SemaphoreHandle_t semaphore;
 
 struct rfidData
 {
@@ -82,12 +83,9 @@ void createWebServer();
 
 BluetoothSerial btSerial;
 
-
-
-
 void get_data()
 {
-
+  Serial.println("Second core");
   btSerial.end();
 
   StaticJsonDocument<1024> jsonDocument;
@@ -142,53 +140,55 @@ void get_data()
     const char *unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
     const char *value_recived_from_server = jsonDocument["value"];
     bool sent_from_server = jsonDocument["sent_from_server"];
-    Serial.println(sent_from_server);
     int storedId;
 
     storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
 
     if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0 && sent_from_server)
     {
-
-      digitalWrite(BLUE2, HIGH);
-      Serial.println("changes");
-      EEPROM.write(ID_EEPROM_ADDRESS, id);
-      EEPROM.commit();
-      Serial.println(value_recived_from_server);
-      String val_to_write = String(value_recived_from_server);
-      val_to_write = val_to_write.substring(0, 16);
+      Serial.println("ohk");
+      if (xSemaphoreTake(semaphore, portMAX_DELAY) == pdTRUE)
       {
-        rfidData rfid = writingData(val_to_write);
-
-        while (strcmp(rfid.uid.c_str(), "") == 0)
+        digitalWrite(BLUE2, HIGH);
+        Serial.println("changes");
+        EEPROM.write(ID_EEPROM_ADDRESS, id);
+        EEPROM.commit();
+        Serial.println(value_recived_from_server);
+        String val_to_write = String(value_recived_from_server);
+        val_to_write = val_to_write.substring(0, 16);
         {
-          digitalWrite(YELLOW, HIGH);
-          rfid = writingData(val_to_write);
-          delay(1000);
+          rfidData rfid = writingData(val_to_write);
+
+          while (strcmp(rfid.uid.c_str(), "") == 0)
+          {
+            digitalWrite(YELLOW, HIGH);
+            rfid = writingData(val_to_write);
+            delay(1000);
+          }
         }
+        digitalWrite(YELLOW, LOW);
+
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+        delay(100);
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+        delay(100);
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+        delay(100);
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+
+        digitalWrite(BLUE2, LOW);
+        mfrc522.PICC_HaltA();
+        mfrc522.PCD_StopCrypto1();
+        xSemaphoreGive(semaphore);
       }
-      digitalWrite(YELLOW, LOW);
-
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-
-      digitalWrite(BLUE2, LOW);
-      mfrc522.PICC_HaltA();
-      mfrc522.PCD_StopCrypto1();
-
     }
   }
 
@@ -214,10 +214,10 @@ void post_data(String D0, String data, String uid)
 
   WiFiClientSecure client;
   client.setInsecure();
-  
+
   if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
   {
- 
+
     String this_will_be_sent_to_server_hehe = "D0=" + String(D0) + "&data=" + String(data) + "&uid=" + String(uid);
 
     client.println("POST /api/rfid/" + uqid + "/" + username + "/read-esp-scanned HTTP/1.1");
@@ -281,19 +281,16 @@ void post_data(String D0, String data, String uid)
   btSerial.begin(9600);
 }
 
-
-
-void secondCoreTask(void* parameter) {
-  while (true) {
+void secondCoreTask(void *parameter)
+{
+  while (true)
+  {
 
     get_data();
-  
+
     delay(2000); // Adjust the delay as per your requirements
   }
 }
-
-
-
 
 void setup()
 {
@@ -402,65 +399,66 @@ void setup()
     SPI.begin(); // Initiate  SPI bus
     mfrc522.PCD_Init();
     mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
-    return;
   }
   else
   {
     digitalWrite(RED, 1);
-    while (WiFi.status() != WL_CONNECTED && digitalRead(bluetooth_switch) == LOW)
+    while (WiFi.status() != WL_CONNECTED)
     {
-      
+
       // Setup Bluetooth
-      Serial.print("State of switch");
-      Serial.print(digitalRead(bluetooth_switch));
       if (digitalRead(bluetooth_switch) == LOW)
       {
+        Serial.print("State of switch");
+        Serial.print(digitalRead(bluetooth_switch));
+
         digitalWrite(BLUE, HIGH);
         Serial.println("Turning the Bluetooth On");
         send_data_to_bt_and_setup_sta();
       }
-      
+      else
+      {
+        digitalWrite(BLUE, 0);
+        Serial.println("Connection Status Negative");
+        Serial.println("Turning the HotSpot On");
+        launchWeb();
+        setupAP(); // Setup HotSpot
+        Serial.println("Do nothing");
+        while ((WiFi.status() != WL_CONNECTED))
+        {
+          delay(10);
+          server.handleClient();
+        }
+      }
     }
-  
-    
-    digitalWrite(BLUE, 0);
-    Serial.println("Connection Status Negative");
-    Serial.println("Turning the HotSpot On");
-    launchWeb();
-    setupAP(); // Setup HotSpot
-    Serial.println("Do nothing");
-    
-    while ((WiFi.status() != WL_CONNECTED))
-    {
-      delay(10);
-      server.handleClient();
-    }
-
   }
 
   Serial.println();
   Serial.println("Waiting...");
 
+  semaphore = xSemaphoreCreateBinary();
+
+  xSemaphoreGive(semaphore);
+
   xTaskCreatePinnedToCore(
-    secondCoreTask,    // Function to run on the second core
-    "SecondCoreTask",  // Name of the task
-    10000,             // Stack size (in bytes)
-    NULL,              // Task parameter
-    1,                 // Task priority
-    NULL,              // Task handle
-    1                  // Core to run the task on (1 or 0)
+      secondCoreTask,   // Function to run on the second core
+      "SecondCoreTask", // Name of the task
+      10000,            // Stack size (in bytes)
+      NULL,             // Task parameter
+      1,                // Task priority
+      NULL,             // Task handle
+      1                 // Core to run the task on (1 or 0)
   );
-  
 }
 
 void loop()
 {
-  if (millis() - last_time_recived_data > 9000)
-  {
-    Serial.println("wil get");
-    get_data();
-    last_time_recived_data = millis();
-  }
+  // if (millis() - last_time_recived_data > 9000)
+  // {
+  //   Serial.println("wil get");
+  //   get_data();
+  //   last_time_recived_data = millis();
+  // }
 
   while (digitalRead(bluetooth_switch) == LOW)
   {
@@ -484,15 +482,13 @@ void loop()
           delay(1000);
         }
         Serial.println(rfid.uid);
-      
+
         if (strcmp(rfid.uid.c_str(), "") != 0)
         {
           Serial.println(rfid.uid);
           post_data("0", rfid.data, rfid.uid);
         }
       }
-      
-      
 
       digitalWrite(YELLOW, LOW);
       digitalWrite(WHITE, HIGH);
@@ -518,22 +514,26 @@ void loop()
   }
   digitalWrite(BLUE, 0);
   {
-    rfidData rfid = readingData();
-    
-    if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
+    if (xSemaphoreTake(semaphore, portMAX_DELAY) == pdTRUE)
     {
-      Serial.println("card readed");
-      digitalWrite(WHITE, HIGH);
-      delay(1000);
-      digitalWrite(WHITE, LOW);
-      delay(500);
-      digitalWrite(WHITE, HIGH);
-      delay(1000);
-      digitalWrite(WHITE, LOW);
-     
-      
-      Serial.println("will post");
-      post_data("0", rfid.data, rfid.uid);
+      Serial.println("it shouldbe executed");
+      rfidData rfid = readingData();
+
+      if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
+      {
+        Serial.println("card readed");
+        digitalWrite(WHITE, HIGH);
+        delay(1000);
+        digitalWrite(WHITE, LOW);
+        delay(500);
+        digitalWrite(WHITE, HIGH);
+        delay(1000);
+        digitalWrite(WHITE, LOW);
+
+        Serial.println("will post");
+        post_data("0", rfid.data, rfid.uid);
+      }
+      xSemaphoreGive(semaphore);
     }
   }
 }
@@ -817,7 +817,6 @@ rfidData writingData(String write_data)
   char *idTag = new char[content.length() + 1];
   strcpy(idTag, content.c_str());
 
-
   for (byte i = 0; i < 6; i++)
     key.keyByte[i] = 0xFF;
 
@@ -882,7 +881,7 @@ void launchWeb()
   createWebServer();
   // Start the server
   ///////////////////
-  server.begin();//
+  server.begin(); //
   ///////////////////
   Serial.println("Server started");
 }

@@ -1,0 +1,20 @@
+there will be two error leds one for wifi not connected error and other for server error and four indicator leds and indecator leds will have one white led to show if rfid is readed or not , two blue leds one of them showing bluetooth mode and  other one showing idk, one yellow led to show that the data from the server or is available or not.
+
+
+what we need to show for basic ux means user experiance 
+1. show wifi error 
+2. show server error 
+3. show rfid read or write 
+4. show in bluethooth mode 
+5. show data from the server is available or not or data from the bluetooth is available or not
+
+
+pinout 
+#define bluetooth_switch 14
+
+#define BLUE 27   // mode on button press or not // continuous means mode 1 blinking means mode 2
+#define BLUE2 26  // data available or not
+#define YELLOW 12 // error card not detected
+#define WHITE 13  // write sucsess full
+#define RED 21    // wifi
+#define RED2 25   // server error
