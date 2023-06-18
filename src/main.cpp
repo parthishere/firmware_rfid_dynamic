@@ -516,7 +516,7 @@ void loop()
   {
     if (xSemaphoreTake(semaphore, portMAX_DELAY) == pdTRUE)
     {
-      Serial.println("it shouldbe executed");
+      
       rfidData rfid = readingData();
 
       if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
