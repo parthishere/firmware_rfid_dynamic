@@ -31,7 +31,7 @@ MFRC522 mfrc522(SDA_SS_PIN, RST_PIN); // create instance of class
 MFRC522::MIFARE_Key key;
 MFRC522::StatusCode status;
 SemaphoreHandle_t semaphore;
-
+BluetoothSerial btSerial;
 struct rfidData
 {
   String uid;
@@ -48,7 +48,6 @@ int blockNum = 2;
 /* This is the actual data which is going to be written into the card */
 /* Create another array to read data from Block */
 /* Length of buffer should be 2 Bytes more than the size of Block (16 Bytes) */
-
 byte bufferLen = 18;
 byte readBlockData[18];
 
@@ -70,6 +69,8 @@ const char *AuthenticatedTag = "E3E7719B";
 
 static int id;
 
+volatile bool isSemaphoreTaken = false;
+
 // Function Decalration
 
 bool checkWifi_connection(String username, String password, String uqid);
@@ -80,8 +81,6 @@ rfidData writingData(String write_data);
 void launchWeb(void);
 void setupAP(void);
 void createWebServer();
-
-BluetoothSerial btSerial;
 
 void get_data()
 {
@@ -131,7 +130,6 @@ void get_data()
     {
       Serial.print("Deserialization error: ");
       Serial.println(error.c_str());
-      return;
     }
 
     digitalWrite(RED2, LOW);
@@ -147,48 +145,45 @@ void get_data()
     if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0 && sent_from_server)
     {
       Serial.println("ohk");
-      if (xSemaphoreTake(semaphore, portMAX_DELAY) == pdTRUE)
+
+      digitalWrite(BLUE2, HIGH);
+      Serial.println("changes");
+      EEPROM.write(ID_EEPROM_ADDRESS, id);
+      EEPROM.commit();
+      Serial.println(value_recived_from_server);
+      String val_to_write = String(value_recived_from_server);
+      val_to_write = val_to_write.substring(0, 16);
       {
-        digitalWrite(BLUE2, HIGH);
-        Serial.println("changes");
-        EEPROM.write(ID_EEPROM_ADDRESS, id);
-        EEPROM.commit();
-        Serial.println(value_recived_from_server);
-        String val_to_write = String(value_recived_from_server);
-        val_to_write = val_to_write.substring(0, 16);
+        rfidData rfid = writingData(val_to_write);
+
+        while (strcmp(rfid.uid.c_str(), "") == 0)
         {
-          rfidData rfid = writingData(val_to_write);
-
-          while (strcmp(rfid.uid.c_str(), "") == 0)
-          {
-            digitalWrite(YELLOW, HIGH);
-            rfid = writingData(val_to_write);
-            delay(1000);
-          }
+          digitalWrite(YELLOW, HIGH);
+          rfid = writingData(val_to_write);
+          delay(1000);
         }
-        digitalWrite(YELLOW, LOW);
-
-        digitalWrite(WHITE, HIGH);
-        delay(100);
-        digitalWrite(WHITE, LOW);
-        delay(100);
-        digitalWrite(WHITE, HIGH);
-        delay(100);
-        digitalWrite(WHITE, LOW);
-        delay(100);
-        digitalWrite(WHITE, HIGH);
-        delay(100);
-        digitalWrite(WHITE, LOW);
-        delay(100);
-        digitalWrite(WHITE, HIGH);
-        delay(100);
-        digitalWrite(WHITE, LOW);
-
-        digitalWrite(BLUE2, LOW);
-        mfrc522.PICC_HaltA();
-        mfrc522.PCD_StopCrypto1();
-        xSemaphoreGive(semaphore);
       }
+      digitalWrite(YELLOW, LOW);
+
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+      delay(100);
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+      delay(100);
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+      delay(100);
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+
+      digitalWrite(BLUE2, LOW);
+      mfrc522.PICC_HaltA();
+      mfrc522.PCD_StopCrypto1();
     }
   }
 
@@ -204,79 +199,83 @@ void get_data()
 void post_data(String D0, String data, String uid)
 {
   btSerial.end();
-
-  StaticJsonDocument<1024> jsonDocument;
-  DeserializationError error;
-
-  String input_s = username + ":" + password;
-  String encoded = base64::encode(input_s);
-  String auth = "Basic " + encoded;
-
-  WiFiClientSecure client;
-  client.setInsecure();
-
-  if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
+  if (xSemaphoreTake(semaphore, portMAX_DELAY) == pdTRUE)
   {
+    isSemaphoreTaken = true;
+    StaticJsonDocument<1024> jsonDocument;
+    DeserializationError error;
 
-    String this_will_be_sent_to_server_hehe = "D0=" + String(D0) + "&data=" + String(data) + "&uid=" + String(uid);
+    String input_s = username + ":" + password;
+    String encoded = base64::encode(input_s);
+    String auth = "Basic " + encoded;
 
-    client.println("POST /api/rfid/" + uqid + "/" + username + "/read-esp-scanned HTTP/1.1");
-    client.println("Host: fleetkaptan.up.railway.app");
-    client.println("User-Agent: ESP32");
-    client.println("Authorization: " + auth);
-    client.println("Content-Type: application/x-www-form-urlencoded;");
-    client.println("Content-Length: " + String(this_will_be_sent_to_server_hehe.length()));
-    client.println();
-    client.println(this_will_be_sent_to_server_hehe);
+    WiFiClientSecure client;
+    client.setInsecure();
 
-    while (client.connected())
+    if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
     {
-      String line = client.readStringUntil('\n');
-      if (line == "\r")
+
+      String this_will_be_sent_to_server_hehe = "D0=" + String(D0) + "&data=" + String(data) + "&uid=" + String(uid);
+
+      client.println("POST /api/rfid/" + uqid + "/" + username + "/read-esp-scanned HTTP/1.1");
+      client.println("Host: fleetkaptan.up.railway.app");
+      client.println("User-Agent: ESP32");
+      client.println("Authorization: " + auth);
+      client.println("Content-Type: application/x-www-form-urlencoded;");
+      client.println("Content-Length: " + String(this_will_be_sent_to_server_hehe.length()));
+      client.println();
+      client.println(this_will_be_sent_to_server_hehe);
+
+      while (client.connected())
       {
-        Serial.println("headers received");
-        break;
+        String line = client.readStringUntil('\n');
+        if (line == "\r")
+        {
+          Serial.println("headers received");
+          break;
+        }
       }
-    }
 
-    String response;
-    if (client.available())
-    {
-      response = client.readString();
-    }
-    response.trim();
-    Serial.println(response);
-    client.stop();
+      String response;
+      if (client.available())
+      {
+        response = client.readString();
+      }
+      response.trim();
+      Serial.println(response);
+      client.stop();
 
-    error = deserializeJson(jsonDocument, response);
+      error = deserializeJson(jsonDocument, response);
 
-    if (error)
-    {
-      Serial.print("Deserialization error: ");
-      Serial.println(error.c_str());
-      return;
-    }
+      if (error)
+      {
+        Serial.print("Deserialization error: ");
+        Serial.println(error.c_str());
+      }
 
-    digitalWrite(RED2, LOW);
-    // Access the JSON data
-    if (jsonDocument.containsKey("id") && !jsonDocument["id"].isNull())
-    {
+      digitalWrite(RED2, LOW);
+      // Access the JSON data
+      if (jsonDocument.containsKey("id") && !jsonDocument["id"].isNull())
+      {
 
-      int id = jsonDocument["id"];
-      const char *uniqueId = jsonDocument["esp"]["unique_id"];
-      const char *value = jsonDocument["value"];
+        int id = jsonDocument["id"];
+        const char *uniqueId = jsonDocument["esp"]["unique_id"];
+        const char *value = jsonDocument["value"];
+      }
+      else
+      {
+        Serial.println("ID not found or null");
+      }
+
+      client.stop();
     }
     else
     {
-      Serial.println("ID not found or null");
+      Serial.println(F("Connection wasnt established"));
+      digitalWrite(RED2, HIGH);
     }
-
-    client.stop();
-  }
-  else
-  {
-    Serial.println(F("Connection wasnt established"));
-    digitalWrite(RED2, HIGH);
+    xSemaphoreGive(semaphore);
+    isSemaphoreTaken = false;
   }
   btSerial.begin(9600);
 }
@@ -285,10 +284,105 @@ void secondCoreTask(void *parameter)
 {
   while (true)
   {
-
-    get_data();
+    if (xSemaphoreTake(semaphore, portMAX_DELAY) == pdTRUE)
+    {
+      isSemaphoreTaken = true;
+      get_data();
+      xSemaphoreGive(semaphore);
+      isSemaphoreTaken = false;
+    }
 
     delay(2000); // Adjust the delay as per your requirements
+  }
+}
+
+void mainLoopTask(void *parameter)
+{
+  while (true)
+  {
+
+    while (digitalRead(bluetooth_switch) == LOW)
+    {
+      digitalWrite(BLUE, HIGH);
+      while (btSerial.available())
+      {
+        digitalWrite(BLUE, HIGH);
+        ssid_pass = btSerial.readString();
+
+        String data_to_write_from_bt = ssid_pass;
+        Serial.println(ssid_pass);
+
+        String dataToWrite = ssid_pass; // Example string to write
+        dataToWrite = dataToWrite.substring(0, 16);
+        {
+          rfidData rfid = writingData(dataToWrite);
+          while (strcmp(rfid.uid.c_str(), "") == 0)
+          {
+            digitalWrite(YELLOW, HIGH);
+            rfid = writingData(dataToWrite);
+            delay(1000);
+          }
+          Serial.println(rfid.uid);
+
+          if (strcmp(rfid.uid.c_str(), "") != 0)
+          {
+            Serial.println(rfid.uid);
+            post_data("0", rfid.data, rfid.uid);
+          }
+        }
+
+        digitalWrite(YELLOW, LOW);
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+        delay(100);
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+        delay(100);
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+        delay(100);
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+
+        digitalWrite(BLUE, LOW);
+        break;
+        // write rifd
+      }
+    }
+    digitalWrite(BLUE, 0);
+    {
+      if (xSemaphoreTake(semaphore, portMAX_DELAY) == pdTRUE)
+      {
+        isSemaphoreTaken = true;
+        rfidData rfid = readingData();
+        if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
+        {
+          Serial.println("card readed");
+          digitalWrite(WHITE, HIGH);
+          delay(1000);
+          digitalWrite(WHITE, LOW);
+          delay(500);
+          digitalWrite(WHITE, HIGH);
+          delay(1000);
+          digitalWrite(WHITE, LOW);
+
+          Serial.println("will post");
+          xSemaphoreGive(semaphore);
+          isSemaphoreTaken = false;
+          post_data("0", rfid.data, rfid.uid);
+          rfid.uid = "";
+        }
+        if (isSemaphoreTaken)
+        {
+          xSemaphoreGive(semaphore);
+          isSemaphoreTaken = false;
+        }
+      }
+    }
   }
 }
 
@@ -424,7 +518,7 @@ void setup()
         launchWeb();
         setupAP(); // Setup HotSpot
         Serial.println("Do nothing");
-        while ((WiFi.status() != WL_CONNECTED))
+        while ((WiFi.status() != WL_CONNECTED) && digitalRead(bluetooth_switch) == HIGH)
         {
           delay(10);
           server.handleClient();
@@ -449,93 +543,48 @@ void setup()
       NULL,             // Task handle
       1                 // Core to run the task on (1 or 0)
   );
+
+  xTaskCreatePinnedToCore(
+      mainLoopTask,   // Function to run in the main loop task
+      "MainLoopTask", // Name of the task
+      10000,          // Stack size (in bytes)
+      NULL,           // Task parameter
+      1,              // Task priority
+      NULL,           // Task handle
+      0               // Core to run the task on (0 for the first core)
+  );
+
+  digitalWrite(WHITE, HIGH);
+  digitalWrite(YELLOW, HIGH);
+  digitalWrite(BLUE, HIGH);
+  digitalWrite(BLUE2, HIGH);
+  digitalWrite(RED, HIGH);
+  digitalWrite(RED2, HIGH);
+  delay(100);
+  digitalWrite(WHITE, LOW);
+  digitalWrite(YELLOW, LOW);
+  digitalWrite(BLUE, LOW);
+  digitalWrite(BLUE2, LOW);
+  digitalWrite(RED, LOW);
+  digitalWrite(RED2, LOW);
+  delay(100);
+  digitalWrite(WHITE, HIGH);
+  digitalWrite(YELLOW, HIGH);
+  digitalWrite(BLUE, HIGH);
+  digitalWrite(BLUE2, HIGH);
+  digitalWrite(RED, HIGH);
+  digitalWrite(RED2, HIGH);
+  delay(100);
+  digitalWrite(WHITE, LOW);
+  digitalWrite(YELLOW, LOW);
+  digitalWrite(BLUE, LOW);
+  digitalWrite(BLUE2, LOW);
+  digitalWrite(RED, LOW);
+  digitalWrite(RED2, LOW);
 }
 
 void loop()
 {
-  // if (millis() - last_time_recived_data > 9000)
-  // {
-  //   Serial.println("wil get");
-  //   get_data();
-  //   last_time_recived_data = millis();
-  // }
-
-  while (digitalRead(bluetooth_switch) == LOW)
-  {
-    digitalWrite(BLUE, HIGH);
-    while (btSerial.available())
-    {
-      digitalWrite(BLUE, HIGH);
-      ssid_pass = btSerial.readString();
-
-      String data_to_write_from_bt = ssid_pass;
-      Serial.println(ssid_pass);
-
-      String dataToWrite = ssid_pass; // Example string to write
-      dataToWrite = dataToWrite.substring(0, 16);
-      {
-        rfidData rfid = writingData(dataToWrite);
-        while (strcmp(rfid.uid.c_str(), "") == 0)
-        {
-          digitalWrite(YELLOW, HIGH);
-          rfid = writingData(dataToWrite);
-          delay(1000);
-        }
-        Serial.println(rfid.uid);
-
-        if (strcmp(rfid.uid.c_str(), "") != 0)
-        {
-          Serial.println(rfid.uid);
-          post_data("0", rfid.data, rfid.uid);
-        }
-      }
-
-      digitalWrite(YELLOW, LOW);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-
-      digitalWrite(BLUE, LOW);
-      break;
-      // write rifd
-    }
-  }
-  digitalWrite(BLUE, 0);
-  {
-    if (xSemaphoreTake(semaphore, portMAX_DELAY) == pdTRUE)
-    {
-      
-      rfidData rfid = readingData();
-
-      if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
-      {
-        Serial.println("card readed");
-        digitalWrite(WHITE, HIGH);
-        delay(1000);
-        digitalWrite(WHITE, LOW);
-        delay(500);
-        digitalWrite(WHITE, HIGH);
-        delay(1000);
-        digitalWrite(WHITE, LOW);
-
-        Serial.println("will post");
-        post_data("0", rfid.data, rfid.uid);
-      }
-      xSemaphoreGive(semaphore);
-    }
-  }
 }
 
 bool checkWifi_connection(String username, String password, String uqid)
