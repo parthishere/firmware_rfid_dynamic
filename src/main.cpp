@@ -422,6 +422,34 @@ void setup()
 
   Serial.println();
   Serial.println("Waiting...");
+
+  digitalWrite(WHITE, HIGH);
+  digitalWrite(YELLOW, HIGH);
+  digitalWrite(BLUE, HIGH);
+  digitalWrite(BLUE2, HIGH);
+  digitalWrite(RED, HIGH);
+  digitalWrite(RED2, HIGH);
+  delay(100);
+  digitalWrite(WHITE, LOW);
+  digitalWrite(YELLOW, LOW);
+  digitalWrite(BLUE, LOW);
+  digitalWrite(BLUE2, LOW);
+  digitalWrite(RED, LOW);
+  digitalWrite(RED2, LOW);
+  delay(100);
+  digitalWrite(WHITE, HIGH);
+  digitalWrite(YELLOW, HIGH);
+  digitalWrite(BLUE, HIGH);
+  digitalWrite(BLUE2, HIGH);
+  digitalWrite(RED, HIGH);
+  digitalWrite(RED2, HIGH);
+  delay(100);
+  digitalWrite(WHITE, LOW);
+  digitalWrite(YELLOW, LOW);
+  digitalWrite(BLUE, LOW);
+  digitalWrite(BLUE2, LOW);
+  digitalWrite(RED, LOW);
+  digitalWrite(RED2, LOW);
 }
 
 void loop()
