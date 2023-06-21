@@ -8,6 +8,40 @@
 #include <WiFiClientSecure.h>
 #include <WebServer.h>
 
+
+#if !( defined(ESP8266) ||  defined(ESP32) )
+  #error This code is intended to run on the ESP8266 or ESP32 platform! Please check your Tools->Board setting.
+#endif
+
+// Level from 0-4
+#define ASYNC_HTTP_DEBUG_PORT     Serial
+#define _ASYNC_HTTP_LOGLEVEL_     4
+
+// 300s = 5 minutes to not flooding
+#define HTTP_REQUEST_INTERVAL     60  //300
+
+// 10s
+#define HEARTBEAT_INTERVAL        10
+
+
+#if (ESP8266)
+  #include <ESP8266WiFi.h>
+#elif (ESP32)
+  #include <WiFi.h>
+#endif
+
+#define ASYNC_HTTP_REQUEST_GENERIC_VERSION_MIN_TARGET      "AsyncHTTPRequest_Generic v1.10.2"
+#define ASYNC_HTTP_REQUEST_GENERIC_VERSION_MIN             1010002
+
+// Seconds for timeout, default is 3s
+#define DEFAULT_RX_TIMEOUT           10
+
+// Uncomment for certain HTTP site to optimize
+//#define NOT_SEND_HEADER_AFTER_CONNECTED        true
+
+// To be included only in main(), .ino with setup() to avoid `Multiple Definitions` Linker Error
+#include <AsyncHTTPRequest_Generic.h>   
+
 #define SDA_SS_PIN 5 // 21 //ESP Interface Pin
 #define RST_PIN 15   // 22    //ESP Interface Pin
 
@@ -30,6 +64,7 @@
 MFRC522 mfrc522(SDA_SS_PIN, RST_PIN); // create instance of class
 MFRC522::MIFARE_Key key;
 MFRC522::StatusCode status;
+AsyncHTTPRequest request;
 
 struct rfidData
 {
@@ -81,6 +116,50 @@ void setupAP(void);
 void createWebServer();
 
 BluetoothSerial btSerial;
+
+
+void sendRequest()
+{
+  static bool requestOpenResult;
+
+  if (request.readyState() == readyStateUnsent || request.readyState() == readyStateDone)
+  {
+    //requestOpenResult = request.open("GET", "http://worldtimeapi.org/api/timezone/Europe/London.txt");
+    requestOpenResult = request.open("GET", "http://worldtimeapi.org/api/timezone/America/Toronto.txt");
+
+    if (requestOpenResult)
+    {
+      // Only send() if open() returns true, or crash
+      request.send();
+    }
+    else
+    {
+      Serial.println(F("Can't send bad request"));
+    }
+  }
+  else
+  {
+    Serial.println(F("Can't send request"));
+  }
+}
+
+void requestCB(void *optParm, AsyncHTTPRequest *request, int readyState)
+{
+  (void) optParm;
+
+  if (readyState == readyStateDone)
+  {
+    AHTTP_LOGDEBUG(F("\n**************************************"));
+    AHTTP_LOGDEBUG1(F("Response Code = "), request->responseHTTPString());
+
+    if (request->responseHTTPcode() == 200)
+    {
+      Serial.println(F("\n**************************************"));
+      Serial.println(request->responseText());
+      Serial.println(F("**************************************"));
+    }
+  }
+}
 
 void get_data()
 {
@@ -385,7 +464,6 @@ void setup()
     SPI.begin(); // Initiate  SPI bus
     mfrc522.PCD_Init();
     mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
-    return;
   }
  else
   {
@@ -423,6 +501,10 @@ void setup()
   Serial.println();
   Serial.println("Waiting...");
 
+  request.setDebug(false);
+
+  request.onReadyStateChange(requestCB);
+
   digitalWrite(WHITE, HIGH);
   digitalWrite(YELLOW, HIGH);
   digitalWrite(BLUE, HIGH);
@@ -457,7 +539,7 @@ void loop()
   if (millis() - last_time_recived_data > 9000)
   {
     Serial.println("wil get");
-    get_data();
+    sendRequest();
     last_time_recived_data = millis();
   }
 
