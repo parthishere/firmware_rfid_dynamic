@@ -387,38 +387,37 @@ void setup()
     mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
     return;
   }
-  else
+ else
   {
     digitalWrite(RED, 1);
-    while (WiFi.status() != WL_CONNECTED && digitalRead(bluetooth_switch) == LOW)
+    while (WiFi.status() != WL_CONNECTED)
     {
-      
+
       // Setup Bluetooth
-      Serial.print("State of switch");
-      Serial.print(digitalRead(bluetooth_switch));
       if (digitalRead(bluetooth_switch) == LOW)
       {
+        Serial.print("State of switch");
+        Serial.print(digitalRead(bluetooth_switch));
+
         digitalWrite(BLUE, HIGH);
         Serial.println("Turning the Bluetooth On");
         send_data_to_bt_and_setup_sta();
       }
-      
+      else
+      {
+        digitalWrite(BLUE, 0);
+        Serial.println("Connection Status Negative");
+        Serial.println("Turning the HotSpot On");
+        launchWeb();
+        setupAP(); // Setup HotSpot
+        Serial.println("Do nothing");
+        while ((WiFi.status() != WL_CONNECTED) && digitalRead(bluetooth_switch) == HIGH)
+        {
+          delay(10);
+          server.handleClient();
+        }
+      }
     }
-  
-    
-    digitalWrite(BLUE, 0);
-    Serial.println("Connection Status Negative");
-    Serial.println("Turning the HotSpot On");
-    launchWeb();
-    setupAP(); // Setup HotSpot
-    Serial.println("Do nothing");
-    
-    while ((WiFi.status() != WL_CONNECTED))
-    {
-      delay(10);
-      server.handleClient();
-    }
-
   }
 
   Serial.println();
