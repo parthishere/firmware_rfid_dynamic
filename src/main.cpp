@@ -13,34 +13,25 @@
   #error This code is intended to run on the ESP8266 or ESP32 platform! Please check your Tools->Board setting.
 #endif
 
-// Level from 0-4
-#define ASYNC_HTTP_DEBUG_PORT     Serial
-#define _ASYNC_HTTP_LOGLEVEL_     4
+#define ASYNC_HTTPS_REQUEST_GENERIC_VERSION_MIN_TARGET      "AsyncHTTPSRequest_Generic v2.2.1"
+#define ASYNC_HTTPS_REQUEST_GENERIC_VERSION_MIN             2002001
 
-// 300s = 5 minutes to not flooding
-#define HTTP_REQUEST_INTERVAL     60  //300
-
-// 10s
-#define HEARTBEAT_INTERVAL        10
-
-
-#if (ESP8266)
-  #include <ESP8266WiFi.h>
-#elif (ESP32)
-  #include <WiFi.h>
-#endif
-
-#define ASYNC_HTTP_REQUEST_GENERIC_VERSION_MIN_TARGET      "AsyncHTTPRequest_Generic v1.10.2"
-#define ASYNC_HTTP_REQUEST_GENERIC_VERSION_MIN             1010002
-
-// Seconds for timeout, default is 3s
-#define DEFAULT_RX_TIMEOUT           10
+/////////////////////////////////////////////////////////
 
 // Uncomment for certain HTTP site to optimize
 //#define NOT_SEND_HEADER_AFTER_CONNECTED        true
 
+// Level from 0-4
+#define ASYNC_HTTPS_DEBUG_PORT      Serial
+
+#define _ASYNC_TCP_SSL_LOGLEVEL_    1
+#define _ASYNC_HTTPS_LOGLEVEL_      1
+
+// 300s = 5 minutes to not flooding
+#define HTTPS_REQUEST_INTERVAL      60  //300
+
 // To be included only in main(), .ino with setup() to avoid `Multiple Definitions` Linker Error
-#include <AsyncHTTPRequest_Generic.h>   
+#include <AsyncHTTPSRequest_Generic.h>        
 
 #define SDA_SS_PIN 5 // 21 //ESP Interface Pin
 #define RST_PIN 15   // 22    //ESP Interface Pin
@@ -64,7 +55,8 @@
 MFRC522 mfrc522(SDA_SS_PIN, RST_PIN); // create instance of class
 MFRC522::MIFARE_Key key;
 MFRC522::StatusCode status;
-AsyncHTTPRequest request;
+BluetoothSerial btSerial;
+AsyncHTTPSRequest request;
 
 struct rfidData
 {
@@ -115,21 +107,25 @@ void launchWeb(void);
 void setupAP(void);
 void createWebServer();
 
-BluetoothSerial btSerial;
 
 
 void sendRequest()
 {
+  btSerial.end();
   static bool requestOpenResult;
-
   if (request.readyState() == readyStateUnsent || request.readyState() == readyStateDone)
   {
-    //requestOpenResult = request.open("GET", "http://worldtimeapi.org/api/timezone/Europe/London.txt");
-    requestOpenResult = request.open("GET", "http://worldtimeapi.org/api/timezone/America/Toronto.txt");
-
+    //requestOpenResult = request.open("GET", "https://worldtimeapi.org/api/timezone/Europe/London.txt");
+    //requestOpenResult = request.open("GET", "https://worldtimeapi.org/api/timezone/America/Toronto.txt");
+    String  temp_url = "https://fleetkaptan.up.railway.app/api/rfid/" + uqid + "/" + username + "/write-to-rfid/";
+    requestOpenResult = request.open("GET", temp_url.c_str());
     if (requestOpenResult)
     {
       // Only send() if open() returns true, or crash
+      String input_s = username + ":" + password;
+      String encoded = base64::encode(input_s);
+      String auth = "Basic " + encoded;
+      request.setReqHeader("Authorization", auth.c_str());
       request.send();
     }
     else
@@ -141,16 +137,15 @@ void sendRequest()
   {
     Serial.println(F("Can't send request"));
   }
+  // btSerial.begin(9600);
 }
 
-void requestCB(void *optParm, AsyncHTTPRequest *request, int readyState)
+void requestCB(void *optParm, AsyncHTTPSRequest *request, int readyState)
 {
   (void) optParm;
-
+  
   if (readyState == readyStateDone)
   {
-    AHTTP_LOGDEBUG(F("\n**************************************"));
-    AHTTP_LOGDEBUG1(F("Response Code = "), request->responseHTTPString());
 
     if (request->responseHTTPcode() == 200)
     {
@@ -158,6 +153,8 @@ void requestCB(void *optParm, AsyncHTTPRequest *request, int readyState)
       Serial.println(request->responseText());
       Serial.println(F("**************************************"));
     }
+
+    request->setDebug(false);
   }
 }
 
