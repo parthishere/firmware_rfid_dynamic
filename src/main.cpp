@@ -8,30 +8,29 @@
 #include <WiFiClientSecure.h>
 #include <WebServer.h>
 
-
-#if !( defined(ESP8266) ||  defined(ESP32) )
-  #error This code is intended to run on the ESP8266 or ESP32 platform! Please check your Tools->Board setting.
+#if !(defined(ESP8266) || defined(ESP32))
+#error This code is intended to run on the ESP8266 or ESP32 platform! Please check your Tools->Board setting.
 #endif
 
-#define ASYNC_HTTPS_REQUEST_GENERIC_VERSION_MIN_TARGET      "AsyncHTTPSRequest_Generic v2.2.1"
-#define ASYNC_HTTPS_REQUEST_GENERIC_VERSION_MIN             2002001
+#define ASYNC_HTTPS_REQUEST_GENERIC_VERSION_MIN_TARGET "AsyncHTTPSRequest_Generic v2.2.1"
+#define ASYNC_HTTPS_REQUEST_GENERIC_VERSION_MIN 2002001
 
 /////////////////////////////////////////////////////////
 
 // Uncomment for certain HTTP site to optimize
-//#define NOT_SEND_HEADER_AFTER_CONNECTED        true
+// #define NOT_SEND_HEADER_AFTER_CONNECTED        true
 
 // Level from 0-4
-#define ASYNC_HTTPS_DEBUG_PORT      Serial
+#define ASYNC_HTTPS_DEBUG_PORT Serial
 
-#define _ASYNC_TCP_SSL_LOGLEVEL_    1
-#define _ASYNC_HTTPS_LOGLEVEL_      1
+#define _ASYNC_TCP_SSL_LOGLEVEL_ 1
+#define _ASYNC_HTTPS_LOGLEVEL_ 1
 
 // 300s = 5 minutes to not flooding
-#define HTTPS_REQUEST_INTERVAL      60  //300
+#define HTTPS_REQUEST_INTERVAL 60 // 300
 
 // To be included only in main(), .ino with setup() to avoid `Multiple Definitions` Linker Error
-#include <AsyncHTTPSRequest_Generic.h>        
+#include <AsyncHTTPSRequest_Generic.h>
 
 #define SDA_SS_PIN 5 // 21 //ESP Interface Pin
 #define RST_PIN 15   // 22    //ESP Interface Pin
@@ -91,6 +90,8 @@ String esid;
 String epass = "";
 int statusCode;
 
+String val_to_write_from_get = "";
+
 long last_time_recived_data;
 const char *AuthenticatedTag = "E3E7719B";
 
@@ -107,17 +108,15 @@ void launchWeb(void);
 void setupAP(void);
 void createWebServer();
 
-
-
 void sendRequest()
 {
   btSerial.end();
   static bool requestOpenResult;
   if (request.readyState() == readyStateUnsent || request.readyState() == readyStateDone)
   {
-    //requestOpenResult = request.open("GET", "https://worldtimeapi.org/api/timezone/Europe/London.txt");
-    //requestOpenResult = request.open("GET", "https://worldtimeapi.org/api/timezone/America/Toronto.txt");
-    String  temp_url = "https://fleetkaptan.up.railway.app/api/rfid/" + uqid + "/" + username + "/write-to-rfid/";
+    // requestOpenResult = request.open("GET", "https://worldtimeapi.org/api/timezone/Europe/London.txt");
+    // requestOpenResult = request.open("GET", "https://worldtimeapi.org/api/timezone/America/Toronto.txt");
+    String temp_url = "https://fleetkaptan.up.railway.app/api/rfid/" + uqid + "/" + username + "/write-to-rfid/";
     requestOpenResult = request.open("GET", temp_url.c_str());
     if (requestOpenResult)
     {
@@ -142,11 +141,11 @@ void sendRequest()
 
 void requestCB(void *optParm, AsyncHTTPSRequest *request, int readyState)
 {
-  (void) optParm;
-  
+  (void)optParm;
+
   if (readyState == readyStateDone)
   {
-     StaticJsonDocument<1024> jsonDocument;
+    StaticJsonDocument<1024> jsonDocument;
     DeserializationError error;
     if (request->responseHTTPcode() == 200)
     {
@@ -156,192 +155,38 @@ void requestCB(void *optParm, AsyncHTTPSRequest *request, int readyState)
       Serial.println(F("**************************************"));
 
       response.trim();
- 
 
-    error = deserializeJson(jsonDocument, response);
+      error = deserializeJson(jsonDocument, response);
 
-    if (error)
-    {
-      Serial.print("Deserialization error: ");
-      Serial.println(error.c_str());
-      return;
-    }
-
-    digitalWrite(RED2, LOW);
-
-    int id = jsonDocument["id"];
-    const char *unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
-    const char *value_recived_from_server = jsonDocument["value"];
-    bool sent_from_server = jsonDocument["sent_from_server"];
-    Serial.println(sent_from_server);
-    int storedId;
-
-    storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
-
-    if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0 && sent_from_server)
-    {
-
-      digitalWrite(BLUE2, HIGH);
-      Serial.println("changes");
-      EEPROM.write(ID_EEPROM_ADDRESS, id);
-      EEPROM.commit();
-      Serial.println(value_recived_from_server);
-      String val_to_write = String(value_recived_from_server);
-      val_to_write = val_to_write.substring(0, 16);
+      if (error)
       {
-        rfidData rfid = writingData(val_to_write);
-
-        while (strcmp(rfid.uid.c_str(), "") == 0)
-        {
-          digitalWrite(YELLOW, HIGH);
-          rfid = writingData(val_to_write);
-          delay(1000);
-        }
+        Serial.print("Deserialization error: ");
+        Serial.println(error.c_str());
+        return;
       }
-      digitalWrite(YELLOW, LOW);
 
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
+      digitalWrite(RED2, LOW);
 
-      digitalWrite(BLUE2, LOW);
-      mfrc522.PICC_HaltA();
-      mfrc522.PCD_StopCrypto1();
+      int id = jsonDocument["id"];
+      const char *unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
+      const char *value_recived_from_server = jsonDocument["value"];
+      bool sent_from_server = jsonDocument["sent_from_server"];
+      Serial.println(sent_from_server);
+      int storedId;
 
-    }
+      storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
+
+      if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0 && sent_from_server)
+      {
+        val_to_write_from_get = String(value_recived_from_server);
+        val_to_write_from_get = val_to_write_from_get.substring(0, 16);
+        EEPROM.write(ID_EEPROM_ADDRESS, id);
+        EEPROM.commit();
+      }
     }
 
     request->setDebug(false);
-    
   }
-}
-
-void get_data()
-{
-
-  btSerial.end();
-
-  StaticJsonDocument<1024> jsonDocument;
-  DeserializationError error;
-
-  String input_s = username + ":" + password;
-  String encoded = base64::encode(input_s);
-  String auth = "Basic " + encoded;
-
-  WiFiClientSecure client;
-  client.setInsecure();
-
-  if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
-  {
-
-    client.println("GET /api/rfid/" + uqid + "/" + username + "/write-to-rfid/ HTTP/1.1");
-    client.println("Host: fleetkaptan.up.railway.app");
-    client.println("User-Agent: ESP32");
-    client.println("Authorization: " + auth);
-    client.println("Connection: close");
-    client.println();
-
-    while (client.connected())
-    {
-      String line = client.readStringUntil('\n');
-      if (line == "\r")
-      {
-        break;
-      }
-    }
-
-    String response;
-    if (client.available())
-    {
-      response = client.readString();
-    }
-    response.trim();
-    client.stop();
-
-    error = deserializeJson(jsonDocument, response);
-
-    if (error)
-    {
-      Serial.print("Deserialization error: ");
-      Serial.println(error.c_str());
-      return;
-    }
-
-    digitalWrite(RED2, LOW);
-
-    int id = jsonDocument["id"];
-    const char *unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
-    const char *value_recived_from_server = jsonDocument["value"];
-    bool sent_from_server = jsonDocument["sent_from_server"];
-    Serial.println(sent_from_server);
-    int storedId;
-
-    storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
-
-    if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0 && sent_from_server)
-    {
-
-      digitalWrite(BLUE2, HIGH);
-      Serial.println("changes");
-      EEPROM.write(ID_EEPROM_ADDRESS, id);
-      EEPROM.commit();
-      Serial.println(value_recived_from_server);
-      String val_to_write = String(value_recived_from_server);
-      val_to_write = val_to_write.substring(0, 16);
-      {
-        rfidData rfid = writingData(val_to_write);
-
-        while (strcmp(rfid.uid.c_str(), "") == 0)
-        {
-          digitalWrite(YELLOW, HIGH);
-          rfid = writingData(val_to_write);
-          delay(1000);
-        }
-      }
-      digitalWrite(YELLOW, LOW);
-
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-
-      digitalWrite(BLUE2, LOW);
-      mfrc522.PICC_HaltA();
-      mfrc522.PCD_StopCrypto1();
-
-    }
-  }
-
-  else
-  {
-    Serial.println(F("Connection wasnt established"));
-    digitalWrite(RED2, HIGH);
-  }
-
-  btSerial.begin(9600);
 }
 
 void post_data(String D0, String data, String uid)
@@ -357,10 +202,10 @@ void post_data(String D0, String data, String uid)
 
   WiFiClientSecure client;
   client.setInsecure();
-  
+
   if (client.connect("fleetkaptan.up.railway.app", 443) && WiFi.status() == WL_CONNECTED)
   {
- 
+
     String this_will_be_sent_to_server_hehe = "D0=" + String(D0) + "&data=" + String(data) + "&uid=" + String(uid);
 
     client.println("POST /api/rfid/" + uqid + "/" + username + "/read-esp-scanned HTTP/1.1");
@@ -372,47 +217,47 @@ void post_data(String D0, String data, String uid)
     client.println();
     client.println(this_will_be_sent_to_server_hehe);
 
-    while (client.connected())
-    {
-      String line = client.readStringUntil('\n');
-      if (line == "\r")
-      {
-        Serial.println("headers received");
-        break;
-      }
-    }
+    // while (client.connected())
+    // {
+    //   String line = client.readStringUntil('\n');
+    //   if (line == "\r")
+    //   {
+    //     Serial.println("headers received");
+    //     break;
+    //   }
+    // }
 
-    String response;
-    if (client.available())
-    {
-      response = client.readString();
-    }
-    response.trim();
-    Serial.println(response);
-    client.stop();
+    // String response;
+    // if (client.available())
+    // {
+    //   response = client.readString();
+    // }
+    // response.trim();
+    // Serial.println(response);
+    // client.stop();
 
-    error = deserializeJson(jsonDocument, response);
+    // error = deserializeJson(jsonDocument, response);
 
-    if (error)
-    {
-      Serial.print("Deserialization error: ");
-      Serial.println(error.c_str());
-      return;
-    }
+    // if (error)
+    // {
+    //   Serial.print("Deserialization error: ");
+    //   Serial.println(error.c_str());
+    //   return;
+    // }
 
     digitalWrite(RED2, LOW);
-    // Access the JSON data
-    if (jsonDocument.containsKey("id") && !jsonDocument["id"].isNull())
-    {
+    // // Access the JSON data
+    // if (jsonDocument.containsKey("id") && !jsonDocument["id"].isNull())
+    // {
 
-      int id = jsonDocument["id"];
-      const char *uniqueId = jsonDocument["esp"]["unique_id"];
-      const char *value = jsonDocument["value"];
-    }
-    else
-    {
-      Serial.println("ID not found or null");
-    }
+    //   int id = jsonDocument["id"];
+    //   const char *uniqueId = jsonDocument["esp"]["unique_id"];
+    //   const char *value = jsonDocument["value"];
+    // }
+    // else
+    // {
+    //   Serial.println("ID not found or null");
+    // }
 
     client.stop();
   }
@@ -532,7 +377,7 @@ void setup()
     mfrc522.PCD_Init();
     mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_max);
   }
- else
+  else
   {
     digitalWrite(RED, 1);
     while (WiFi.status() != WL_CONNECTED)
@@ -609,6 +454,43 @@ void loop()
     sendRequest();
     last_time_recived_data = millis();
   }
+  if (val_to_write_from_get != "")
+  {
+    digitalWrite(BLUE2, HIGH);
+    Serial.println("changes");
+
+    {
+      rfidData rfid = writingData(val_to_write_from_get);
+
+      while (strcmp(rfid.uid.c_str(), "") == 0)
+      {
+        digitalWrite(YELLOW, HIGH);
+        rfid = writingData(val_to_write_from_get);
+        vTaskDelay(pdMS_TO_TICKS(500));
+      }
+    }
+    digitalWrite(YELLOW, LOW);
+
+    digitalWrite(WHITE, HIGH);
+    delay(100);
+    digitalWrite(WHITE, LOW);
+    delay(100);
+    digitalWrite(WHITE, HIGH);
+    delay(100);
+    digitalWrite(WHITE, LOW);
+    delay(100);
+    digitalWrite(WHITE, HIGH);
+    delay(100);
+    digitalWrite(WHITE, LOW);
+    delay(100);
+    digitalWrite(WHITE, HIGH);
+    delay(100);
+    digitalWrite(WHITE, LOW);
+
+    digitalWrite(BLUE2, LOW);
+    mfrc522.PICC_HaltA();
+    mfrc522.PCD_StopCrypto1();
+  }
 
   while (digitalRead(bluetooth_switch) == LOW)
   {
@@ -632,15 +514,13 @@ void loop()
           delay(1000);
         }
         Serial.println(rfid.uid);
-      
+
         if (strcmp(rfid.uid.c_str(), "") != 0)
         {
           Serial.println(rfid.uid);
           post_data("0", rfid.data, rfid.uid);
         }
       }
-      
-      
 
       digitalWrite(YELLOW, LOW);
       digitalWrite(WHITE, HIGH);
@@ -667,7 +547,7 @@ void loop()
   digitalWrite(BLUE, 0);
   {
     rfidData rfid = readingData();
-    
+
     if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
     {
       Serial.println("card readed");
@@ -678,8 +558,7 @@ void loop()
       digitalWrite(WHITE, HIGH);
       delay(1000);
       digitalWrite(WHITE, LOW);
-     
-      
+
       Serial.println("will post");
       post_data("0", rfid.data, rfid.uid);
     }
@@ -965,7 +844,6 @@ rfidData writingData(String write_data)
   char *idTag = new char[content.length() + 1];
   strcpy(idTag, content.c_str());
 
-
   for (byte i = 0; i < 6; i++)
     key.keyByte[i] = 0xFF;
 
@@ -1030,7 +908,7 @@ void launchWeb()
   createWebServer();
   // Start the server
   ///////////////////
-  server.begin();//
+  server.begin(); //
   ///////////////////
   Serial.println("Server started");
 }
