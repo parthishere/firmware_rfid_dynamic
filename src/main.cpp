@@ -488,62 +488,72 @@ void loop()
     digitalWrite(WHITE, LOW);
 
     digitalWrite(BLUE2, LOW);
+    val_to_write_from_get = "";
+
     mfrc522.PICC_HaltA();
     mfrc522.PCD_StopCrypto1();
   }
 
-  while (digitalRead(bluetooth_switch) == LOW)
+  if (digitalRead(bluetooth_switch) == LOW)
   {
-    digitalWrite(BLUE, HIGH);
-    while (btSerial.available())
+    btSerial.begin(9600);
+    while (digitalRead(bluetooth_switch) == LOW)
     {
       digitalWrite(BLUE, HIGH);
-      ssid_pass = btSerial.readString();
 
-      String data_to_write_from_bt = ssid_pass;
-      Serial.println(ssid_pass);
-
-      String dataToWrite = ssid_pass; // Example string to write
-      dataToWrite = dataToWrite.substring(0, 16);
+      while (btSerial.available())
       {
-        rfidData rfid = writingData(dataToWrite);
-        while (strcmp(rfid.uid.c_str(), "") == 0)
-        {
-          digitalWrite(YELLOW, HIGH);
-          rfid = writingData(dataToWrite);
-          delay(1000);
-        }
-        Serial.println(rfid.uid);
+        digitalWrite(BLUE, HIGH);
+        ssid_pass = btSerial.readString();
 
-        if (strcmp(rfid.uid.c_str(), "") != 0)
+        String data_to_write_from_bt = ssid_pass;
+        Serial.println(ssid_pass);
+
+        String dataToWrite = ssid_pass; // Example string to write
+        dataToWrite = dataToWrite.substring(0, 16);
         {
+          rfidData rfid = writingData(dataToWrite);
+          while (strcmp(rfid.uid.c_str(), "") == 0)
+          {
+            digitalWrite(YELLOW, HIGH);
+            rfid = writingData(dataToWrite);
+            delay(1000);
+          }
           Serial.println(rfid.uid);
-          post_data("0", rfid.data, rfid.uid);
+
+          if (strcmp(rfid.uid.c_str(), "") != 0)
+          {
+            Serial.println(rfid.uid);
+            post_data("0", rfid.data, rfid.uid);
+          }
         }
+
+        digitalWrite(YELLOW, LOW);
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+        delay(100);
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+        delay(100);
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+        delay(100);
+        digitalWrite(WHITE, HIGH);
+        delay(100);
+        digitalWrite(WHITE, LOW);
+
+        digitalWrite(BLUE, LOW);
+        break;
+
+        // write rifd
       }
-
-      digitalWrite(YELLOW, LOW);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-      delay(100);
-      digitalWrite(WHITE, HIGH);
-      delay(100);
-      digitalWrite(WHITE, LOW);
-
-      digitalWrite(BLUE, LOW);
-      break;
-      // write rifd
     }
+    btSerial.end();
   }
+  
   digitalWrite(BLUE, 0);
   {
     rfidData rfid = readingData();
