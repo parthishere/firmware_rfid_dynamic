@@ -146,15 +146,85 @@ void requestCB(void *optParm, AsyncHTTPSRequest *request, int readyState)
   
   if (readyState == readyStateDone)
   {
-
+     StaticJsonDocument<1024> jsonDocument;
+    DeserializationError error;
     if (request->responseHTTPcode() == 200)
     {
       Serial.println(F("\n**************************************"));
-      Serial.println(request->responseText());
+      String response = request->responseText();
+      Serial.println(response);
       Serial.println(F("**************************************"));
+
+      response.trim();
+ 
+
+    error = deserializeJson(jsonDocument, response);
+
+    if (error)
+    {
+      Serial.print("Deserialization error: ");
+      Serial.println(error.c_str());
+      return;
+    }
+
+    digitalWrite(RED2, LOW);
+
+    int id = jsonDocument["id"];
+    const char *unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
+    const char *value_recived_from_server = jsonDocument["value"];
+    bool sent_from_server = jsonDocument["sent_from_server"];
+    Serial.println(sent_from_server);
+    int storedId;
+
+    storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
+
+    if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0 && sent_from_server)
+    {
+
+      digitalWrite(BLUE2, HIGH);
+      Serial.println("changes");
+      EEPROM.write(ID_EEPROM_ADDRESS, id);
+      EEPROM.commit();
+      Serial.println(value_recived_from_server);
+      String val_to_write = String(value_recived_from_server);
+      val_to_write = val_to_write.substring(0, 16);
+      {
+        rfidData rfid = writingData(val_to_write);
+
+        while (strcmp(rfid.uid.c_str(), "") == 0)
+        {
+          digitalWrite(YELLOW, HIGH);
+          rfid = writingData(val_to_write);
+          delay(1000);
+        }
+      }
+      digitalWrite(YELLOW, LOW);
+
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+      delay(100);
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+      delay(100);
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+      delay(100);
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+
+      digitalWrite(BLUE2, LOW);
+      mfrc522.PICC_HaltA();
+      mfrc522.PCD_StopCrypto1();
+
+    }
     }
 
     request->setDebug(false);
+    
   }
 }
 
@@ -351,7 +421,7 @@ void post_data(String D0, String data, String uid)
     Serial.println(F("Connection wasnt established"));
     digitalWrite(RED2, HIGH);
   }
-  btSerial.begin(9600);
+  // btSerial.begin(9600);
 }
 
 void setup()
