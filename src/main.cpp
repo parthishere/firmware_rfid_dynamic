@@ -155,33 +155,39 @@ void requestCB(void *optParm, AsyncHTTPSRequest *request, int readyState)
       Serial.println(F("**************************************"));
 
       response.trim();
-
-      error = deserializeJson(jsonDocument, response);
-
-      if (error)
+      try
       {
-        Serial.print("Deserialization error: ");
-        Serial.println(error.c_str());
-        return;
+        error = deserializeJson(jsonDocument, response);
+
+        if (error)
+        {
+          Serial.print("Deserialization error: ");
+          Serial.println(error.c_str());
+          return;
+        }
+
+        digitalWrite(RED2, LOW);
+
+        int id = jsonDocument["id"];
+        const char *unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
+        const char *value_recived_from_server = jsonDocument["value"];
+        bool sent_from_server = jsonDocument["sent_from_server"];
+        Serial.println(sent_from_server);
+        int storedId;
+
+        storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
+
+        if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0 && sent_from_server)
+        {
+          val_to_write_from_get = String(value_recived_from_server);
+          val_to_write_from_get = val_to_write_from_get.substring(0, 16);
+          EEPROM.write(ID_EEPROM_ADDRESS, id);
+          EEPROM.commit();
+        }
       }
-
-      digitalWrite(RED2, LOW);
-
-      int id = jsonDocument["id"];
-      const char *unique_id_recived_from_server = jsonDocument["esp"]["unique_id"];
-      const char *value_recived_from_server = jsonDocument["value"];
-      bool sent_from_server = jsonDocument["sent_from_server"];
-      Serial.println(sent_from_server);
-      int storedId;
-
-      storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
-
-      if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0 && sent_from_server)
+      catch (...)
       {
-        val_to_write_from_get = String(value_recived_from_server);
-        val_to_write_from_get = val_to_write_from_get.substring(0, 16);
-        EEPROM.write(ID_EEPROM_ADDRESS, id);
-        EEPROM.commit();
+        Serial.println("error occured");
       }
     }
 
@@ -553,7 +559,7 @@ void loop()
     }
     btSerial.end();
   }
-  
+
   digitalWrite(BLUE, 0);
   {
     rfidData rfid = readingData();
