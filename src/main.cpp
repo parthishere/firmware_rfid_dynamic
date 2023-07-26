@@ -43,6 +43,7 @@
 #define WHITE 13  // write sucsess full
 #define RED 21    // wifi
 #define RED2 25   // server error
+#define BUZZER 18
 
 #define MODE_SW1 32
 #define MODE_SW2 35
@@ -114,8 +115,7 @@ void sendRequest()
   static bool requestOpenResult;
   if (request.readyState() == readyStateUnsent || request.readyState() == readyStateDone)
   {
-    // requestOpenResult = request.open("GET", "https://worldtimeapi.org/api/timezone/Europe/London.txt");
-    // requestOpenResult = request.open("GET", "https://worldtimeapi.org/api/timezone/America/Toronto.txt");
+    
     String temp_url = "https://fleetkaptan.up.railway.app/api/rfid/" + uqid + "/" + username + "/write-to-rfid/";
     requestOpenResult = request.open("GET", temp_url.c_str());
     if (requestOpenResult)
@@ -454,7 +454,7 @@ void setup()
 
 void loop()
 {
-  if (millis() - last_time_recived_data > 9000)
+  if (millis() - last_time_recived_data > 7000)
   {
     Serial.println("wil get");
     sendRequest();
@@ -502,7 +502,13 @@ void loop()
 
   if (digitalRead(bluetooth_switch) == LOW)
   {
+    delay(100);
+    btSerial.end();
+    request.abort();
+    delay(100);
     btSerial.begin(9600);
+    delay(100);
+    
     while (digitalRead(bluetooth_switch) == LOW)
     {
       digitalWrite(BLUE, HIGH);
@@ -585,7 +591,7 @@ bool checkWifi_connection(String username, String password, String uqid)
 {
   int c = 0;
   Serial.println("Waiting for Wifi to connect");
-  while (c < 20)
+  while (c < 25)
   {
     if (WiFi.status() == WL_CONNECTED)
     {
