@@ -50,7 +50,9 @@
 #define MODE_SW1 32
 #define MODE_SW2 35
 
-#define ID_EEPROM_ADDRESS 226
+#define ID_MIN_EEPROM_ADDRESS 226
+#define ID_MAX_EEPROM_ADDRESS 230
+
 #define SIZE_BUFFER 18
 #define MAX_SIZE_BLOCK 16
 
@@ -177,15 +179,26 @@ void requestCB(void *optParm, AsyncHTTPSRequest *request, int readyState)
         const char *value_recived_from_server = jsonDocument["value"];
         bool sent_from_server = jsonDocument["sent_from_server"];
         Serial.println(sent_from_server);
-        int storedId;
 
-        storedId = int(EEPROM.read(ID_EEPROM_ADDRESS));
+        unsigned int resultID = 0;
+        for (int i = 0; i < sizeof(unsigned int); i++) {
+            resultID |= EEPROM.read(ID_MIN_EEPROM_ADDRESS + i) << (8 * i);
+        }
+        Serial.println("this is the result ID");
+        Serial.println(resultID);
 
-        if (id != storedId && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0 && sent_from_server)
+
+        if (id != resultID && strcmp(uqid.c_str(), unique_id_recived_from_server) == 0 && sent_from_server)
         {
           val_to_write_from_get = String(value_recived_from_server);
           val_to_write_from_get = val_to_write_from_get.substring(0, 16);
-          EEPROM.write(ID_EEPROM_ADDRESS, id);
+          for (int i=ID_MIN_EEPROM_ADDRESS;i<=ID_MAX_EEPROM_ADDRESS; i++){
+            EEPROM.write(i, 0);
+          }
+          EEPROM.commit();
+          for (int i = 0; i < sizeof(unsigned int); i++) {
+              EEPROM.write(ID_MIN_EEPROM_ADDRESS + i, ((id >> (8 * i)) & 0xFF)) ;
+          }
           EEPROM.commit();
         }
       }
