@@ -240,33 +240,33 @@ void post_data(String D0, String data, String uid)
     client.println();
     client.println(this_will_be_sent_to_server_hehe);
 
-    // while (client.connected())
-    // {
-    //   String line = client.readStringUntil('\n');
-    //   if (line == "\r")
-    //   {
-    //     Serial.println("headers received");
-    //     break;
-    //   }
-    // }
+    while (client.connected())
+    {
+      String line = client.readStringUntil('\n');
+      if (line == "\r")
+      {
+        Serial.println("headers received");
+        break;
+      }
+    }
 
-    // String response;
-    // if (client.available())
-    // {
-    //   response = client.readString();
-    // }
-    // response.trim();
-    // Serial.println(response);
-    // client.stop();
+    String response;
+    if (client.available())
+    {
+      response = client.readString();
+    }
+    response.trim();
+    Serial.println(response);
+    client.stop();
 
-    // error = deserializeJson(jsonDocument, response);
+    error = deserializeJson(jsonDocument, response);
 
-    // if (error)
-    // {
-    //   Serial.print("Deserialization error: ");
-    //   Serial.println(error.c_str());
-    //   return;
-    // }
+    if (error)
+    {
+      Serial.print("Deserialization error: ");
+      Serial.println(error.c_str());
+      return;
+    }
 
     digitalWrite(RED2, LOW);
     // // Access the JSON data
