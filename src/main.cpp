@@ -44,6 +44,8 @@
 #define RED 21    // wifi
 #define RED2 25   // server error
 #define BUZZER 18
+#define BATTERY_SENSE_PIN 39
+#define BATTERY_LEVEL_INDECATOR 26
 
 #define MODE_SW1 32
 #define MODE_SW2 35
@@ -51,6 +53,8 @@
 #define ID_EEPROM_ADDRESS 226
 #define SIZE_BUFFER 18
 #define MAX_SIZE_BLOCK 16
+
+#define TIME_TO_CHECK_FOR_BATTERY 1000 * 60
 
 MFRC522 mfrc522(SDA_SS_PIN, RST_PIN); // create instance of class
 MFRC522::MIFARE_Key key;
@@ -93,7 +97,7 @@ int statusCode;
 
 String val_to_write_from_get = "";
 
-long last_time_recived_data;
+long last_time_recived_data, last_time_checked_battery{1000 * 61};
 const char *AuthenticatedTag = "E3E7719B";
 
 static int id;
@@ -115,7 +119,7 @@ void sendRequest()
   static bool requestOpenResult;
   if (request.readyState() == readyStateUnsent || request.readyState() == readyStateDone)
   {
-    
+
     String temp_url = "https://fleetkaptan.up.railway.app/api/rfid/" + uqid + "/" + username + "/write-to-rfid/";
     requestOpenResult = request.open("GET", temp_url.c_str());
     if (requestOpenResult)
@@ -296,6 +300,8 @@ void setup()
   pinMode(BLUE2, OUTPUT);
   pinMode(RED, OUTPUT);
   pinMode(RED2, OUTPUT);
+  pinMode(BATTERY_LEVEL_INDECATOR, OUTPUT);
+  pinMode(BATTERY_SENSE_PIN, INPUT);
 
   EEPROM.begin(512); // Initialasing EEPROM
   delay(200);
@@ -423,33 +429,23 @@ void setup()
 
   request.onReadyStateChange(requestCB);
 
-  digitalWrite(WHITE, HIGH);
-  digitalWrite(YELLOW, HIGH);
-  digitalWrite(BLUE, HIGH);
-  digitalWrite(BLUE2, HIGH);
-  digitalWrite(RED, HIGH);
-  digitalWrite(RED2, HIGH);
-  delay(100);
-  digitalWrite(WHITE, LOW);
-  digitalWrite(YELLOW, LOW);
-  digitalWrite(BLUE, LOW);
-  digitalWrite(BLUE2, LOW);
-  digitalWrite(RED, LOW);
-  digitalWrite(RED2, LOW);
-  delay(100);
-  digitalWrite(WHITE, HIGH);
-  digitalWrite(YELLOW, HIGH);
-  digitalWrite(BLUE, HIGH);
-  digitalWrite(BLUE2, HIGH);
-  digitalWrite(RED, HIGH);
-  digitalWrite(RED2, HIGH);
-  delay(100);
-  digitalWrite(WHITE, LOW);
-  digitalWrite(YELLOW, LOW);
-  digitalWrite(BLUE, LOW);
-  digitalWrite(BLUE2, LOW);
-  digitalWrite(RED, LOW);
-  digitalWrite(RED2, LOW);
+  for (int i = 0; i < 3; i++)
+  {
+    digitalWrite(WHITE, HIGH);
+    digitalWrite(YELLOW, HIGH);
+    digitalWrite(BLUE, HIGH);
+    digitalWrite(BLUE2, HIGH);
+    digitalWrite(RED, HIGH);
+    digitalWrite(RED2, HIGH);
+    delay(100);
+    digitalWrite(WHITE, LOW);
+    digitalWrite(YELLOW, LOW);
+    digitalWrite(BLUE, LOW);
+    digitalWrite(BLUE2, LOW);
+    digitalWrite(RED, LOW);
+    digitalWrite(RED2, LOW);
+    delay(100);
+  }
 }
 
 void loop()
@@ -460,9 +456,53 @@ void loop()
     sendRequest();
     last_time_recived_data = millis();
   }
+
+  if (millis() - last_time_checked_battery > TIME_TO_CHECK_FOR_BATTERY)
+  {
+    Serial.println("wil check battery");
+    uint16_t bat_value = analogRead(BATTERY_SENSE_PIN);
+    Serial.println("BATTERY READ");
+    Serial.println(bat_value);
+    Serial.println();
+    if (bat_value < 4096 && bat_value > (4096 - 1024))
+    {
+      digitalWrite(BATTERY_LEVEL_INDECATOR, HIGH);
+      delay(5000);
+      digitalWrite(BATTERY_LEVEL_INDECATOR, LOW);
+      
+    }
+    else if (bat_value < (4096 - 1024) && bat_value > (4096 - (2 * 1024)))
+    {
+      digitalWrite(BATTERY_LEVEL_INDECATOR, HIGH);
+      delay(2500);
+      digitalWrite(BATTERY_LEVEL_INDECATOR, LOW);
+      delay(2500);
+    }
+    else if (bat_value < (4096 - (2 * 1024)) && bat_value > (4096 - (3 * 1024)))
+    {
+      digitalWrite(BATTERY_LEVEL_INDECATOR, HIGH);
+      delay(900);
+      digitalWrite(BATTERY_LEVEL_INDECATOR, LOW);
+      delay(900);
+      digitalWrite(BATTERY_LEVEL_INDECATOR, HIGH);
+      delay(900);
+      digitalWrite(BATTERY_LEVEL_INDECATOR, LOW);
+      delay(900);
+    }
+    else
+    {
+      for (int i=0; i<8; i++){
+        digitalWrite(BATTERY_LEVEL_INDECATOR, HIGH);
+        delay(100);
+        digitalWrite(BATTERY_LEVEL_INDECATOR, LOW);
+        delay(100);
+      }
+    }
+    last_time_checked_battery = millis();
+  }
   if (val_to_write_from_get != "")
   {
-    digitalWrite(BLUE2, HIGH);
+    // digitalWrite(BLUE2, HIGH);
     Serial.println("changes");
 
     {
@@ -477,21 +517,13 @@ void loop()
     }
     digitalWrite(YELLOW, LOW);
 
-    digitalWrite(WHITE, HIGH);
-    delay(100);
-    digitalWrite(WHITE, LOW);
-    delay(100);
-    digitalWrite(WHITE, HIGH);
-    delay(100);
-    digitalWrite(WHITE, LOW);
-    delay(100);
-    digitalWrite(WHITE, HIGH);
-    delay(100);
-    digitalWrite(WHITE, LOW);
-    delay(100);
-    digitalWrite(WHITE, HIGH);
-    delay(100);
-    digitalWrite(WHITE, LOW);
+    for (int i = 0; i < 4; i++)
+    {
+      digitalWrite(WHITE, HIGH);
+      delay(100);
+      digitalWrite(WHITE, LOW);
+      delay(100);
+    }
 
     digitalWrite(BLUE2, LOW);
     val_to_write_from_get = "";
@@ -508,7 +540,7 @@ void loop()
     delay(100);
     btSerial.begin(9600);
     delay(100);
-    
+
     while (digitalRead(bluetooth_switch) == LOW)
     {
       digitalWrite(BLUE, HIGH);
@@ -541,21 +573,13 @@ void loop()
         }
 
         digitalWrite(YELLOW, LOW);
-        digitalWrite(WHITE, HIGH);
-        delay(100);
-        digitalWrite(WHITE, LOW);
-        delay(100);
-        digitalWrite(WHITE, HIGH);
-        delay(100);
-        digitalWrite(WHITE, LOW);
-        delay(100);
-        digitalWrite(WHITE, HIGH);
-        delay(100);
-        digitalWrite(WHITE, LOW);
-        delay(100);
-        digitalWrite(WHITE, HIGH);
-        delay(100);
-        digitalWrite(WHITE, LOW);
+        for (int i = 0; i < 4; i++)
+        {
+          digitalWrite(WHITE, HIGH);
+          delay(100);
+          digitalWrite(WHITE, LOW);
+          delay(100);
+        }
 
         digitalWrite(BLUE, LOW);
         break;
@@ -573,13 +597,13 @@ void loop()
     if (strcmp((const char *)rfid.uid.c_str(), "") != 0)
     {
       Serial.println("card readed");
-      digitalWrite(WHITE, HIGH);
-      delay(1000);
-      digitalWrite(WHITE, LOW);
-      delay(500);
-      digitalWrite(WHITE, HIGH);
-      delay(1000);
-      digitalWrite(WHITE, LOW);
+      for (int i = 0; i < 2; i++)
+      {
+        digitalWrite(WHITE, HIGH);
+        delay(1000);
+        digitalWrite(WHITE, LOW);
+        delay(500);
+      }
 
       Serial.println("will post");
       post_data("0", rfid.data, rfid.uid);
